@@ -1,0 +1,36 @@
+{
+  "server_url": "http://10.220.143.130:8000/api/v1",
+  "agent_id": "CHANGE_THIS_TO_UNIQUE_ID",
+  "agent_name": "Linux-Server-01",
+  "heartbeat_interval": 60,
+  "monitoring": {
+    "file_system": true,
+    "monitored_paths": [
+      "/home",
+      "/var/www",
+      "/opt/data"
+    ],
+    "exclude_paths": [
+      "/home/*/.cache",
+      "/home/*/.local/share",
+      "/home/*/snap"
+    ],
+    "file_extensions": [
+      ".pdf",
+      ".docx",
+      ".xlsx",
+      ".txt",
+      ".csv",
+      ".json",
+      ".xml",
+      ".sql",
+      ".conf",
+      ".key",
+      ".pem"
+    ]
+  },
+  "classification": {
+    "enabled": true,
+    "max_file_size_mb": 10
+  }
+}

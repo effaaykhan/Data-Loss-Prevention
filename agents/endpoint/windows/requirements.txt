@@ -1,0 +1,13 @@
+# CyberSentinel DLP - Windows Agent Requirements
+
+# Core dependencies
+requests==2.31.0
+watchdog==3.0.0
+pywin32==306
+WMI==1.5.1
+
+# Utilities
+python-dateutil==2.8.2
+
+# For building executable
+pyinstaller==6.3.0

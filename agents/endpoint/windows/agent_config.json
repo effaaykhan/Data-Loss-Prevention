@@ -1,0 +1,33 @@
+{
+  "server_url": "http://10.220.143.130:8000/api/v1",
+  "agent_id": "CHANGE_THIS_TO_UNIQUE_ID",
+  "agent_name": "Windows-Endpoint-01",
+  "heartbeat_interval": 60,
+  "monitoring": {
+    "file_system": true,
+    "clipboard": true,
+    "usb_devices": true,
+    "monitored_paths": [
+      "C:\\Users\\Public\\Documents",
+      "C:\\Users\\%USERNAME%\\Documents",
+      "C:\\Users\\%USERNAME%\\Desktop",
+      "C:\\Users\\%USERNAME%\\Downloads"
+    ],
+    "file_extensions": [
+      ".pdf",
+      ".docx",
+      ".doc",
+      ".xlsx",
+      ".xls",
+      ".csv",
+      ".txt",
+      ".json",
+      ".xml",
+      ".sql"
+    ]
+  },
+  "classification": {
+    "enabled": true,
+    "max_file_size_mb": 10
+  }
+}
