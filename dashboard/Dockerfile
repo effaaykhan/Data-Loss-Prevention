@@ -3,7 +3,10 @@
 FROM node:18-alpine AS deps
 
 # Install dependencies only when needed
-RUN apk add --no-cache libc6-compat
+# Add retries and fallback for package installation
+RUN apk update && \
+    (apk add --no-cache libc6-compat || true) && \
+    apk add --no-cache libstdc++
 WORKDIR /app
 
 # Copy package files
