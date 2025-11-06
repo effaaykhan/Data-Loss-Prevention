@@ -27,7 +27,10 @@ cd cybersentinel-dlp
 ```bash
 # Copy environment templates
 cp config/env-templates/.env.server.example server/.env
-cp dashboard/.env.local.example dashboard/.env.local
+
+# Copy dashboard template (either option works):
+cp config/env-templates/.env.dashboard.example dashboard/.env.local
+# OR: cp dashboard/.env.local.example dashboard/.env.local
 
 # IMPORTANT: Update with your host IP address
 # Get your IP address:

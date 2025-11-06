@@ -4,8 +4,8 @@ Centralized configuration using Pydantic Settings
 """
 
 from typing import List, Optional
-from pydantic import Field, validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -136,24 +136,28 @@ class Settings(BaseSettings):
     FEATURE_REAL_TIME_BLOCKING: bool = Field(default=True, env="FEATURE_REAL_TIME_BLOCKING")
     FEATURE_CLOUD_CONNECTORS: bool = Field(default=True, env="FEATURE_CLOUD_CONNECTORS")
 
-    @validator("CORS_ORIGINS", pre=True)
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
     def parse_cors_origins(cls, v):
         """Parse CORS origins from comma-separated string"""
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
 
-    @validator("ALLOWED_HOSTS", pre=True)
+    @field_validator("ALLOWED_HOSTS", mode="before")
+    @classmethod
     def parse_allowed_hosts(cls, v):
         """Parse allowed hosts from comma-separated string"""
         if isinstance(v, str):
             return [host.strip() for host in v.split(",")]
         return v
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
 
 
 # Global settings instance

@@ -4,7 +4,7 @@ Represents system alerts generated from events or conditions
 """
 
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Text, JSON, Index
+from sqlalchemy import Column, String, Boolean, DateTime, Text, JSON, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
@@ -39,7 +39,7 @@ class Alert(Base):
 
     # Alert details
     details = Column(JSON, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    alert_metadata = Column("metadata", JSON, nullable=True)
     tags = Column(JSON, nullable=True)  # ["pci-dss", "gdpr", "urgent"]
 
     # Status and workflow
@@ -97,7 +97,7 @@ class Alert(Base):
             "user_email": self.user_email,
             "policy_id": str(self.policy_id) if self.policy_id else None,
             "details": self.details,
-            "metadata": self.metadata,
+            "metadata": self.alert_metadata,
             "tags": self.tags,
             "status": self.status,
             "assigned_to": str(self.assigned_to) if self.assigned_to else None,

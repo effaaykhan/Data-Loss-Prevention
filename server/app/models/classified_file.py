@@ -91,7 +91,7 @@ class ClassifiedFile(Base):
     review_notes = Column(Text, nullable=True)
 
     # Additional metadata
-    metadata = Column(JSON, nullable=True)
+    file_metadata = Column("metadata", JSON, nullable=True)
     tags = Column(JSON, nullable=True)
 
     # Processing status
@@ -165,7 +165,7 @@ class ClassifiedFile(Base):
             "reviewed_by": str(self.reviewed_by) if self.reviewed_by else None,
             "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
             "review_notes": self.review_notes,
-            "metadata": self.metadata,
+            "metadata": self.file_metadata,
             "tags": self.tags,
             "scan_status": self.scan_status,
             "scan_duration_ms": self.scan_duration_ms,
