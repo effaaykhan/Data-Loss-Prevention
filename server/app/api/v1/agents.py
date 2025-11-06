@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import structlog
 
 from app.core.security import get_current_user
@@ -37,8 +37,8 @@ class Agent(AgentBase):
     last_seen: datetime = Field(..., description="Last heartbeat timestamp")
     created_at: datetime = Field(..., description="Registration timestamp")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "agent_id": "agt-001",
                 "name": "WIN-DESK-01",
@@ -50,6 +50,7 @@ class Agent(AgentBase):
                 "created_at": "2025-01-01T08:00:00Z"
             }
         }
+    )
 
 
 @router.get("/", response_model=List[Agent])

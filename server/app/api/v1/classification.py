@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import structlog
 
 from app.core.security import get_current_user
@@ -31,8 +31,8 @@ class ClassifiedFile(BaseModel):
     scanned_at: datetime = Field(..., description="Scan timestamp")
     confidence_score: float = Field(..., description="Classification confidence (0-1)")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "file_id": "file-001",
                 "filename": "financial_report_Q4.xlsx",
@@ -47,6 +47,7 @@ class ClassifiedFile(BaseModel):
                 "confidence_score": 0.95
             }
         }
+    )
 
 
 @router.get("/files", response_model=List[ClassifiedFile])
