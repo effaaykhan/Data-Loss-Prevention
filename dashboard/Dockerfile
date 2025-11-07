@@ -18,14 +18,8 @@ WORKDIR /app
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy configuration files first
-COPY package.json tsconfig.json next.config.js ./
-
-# Copy application code
-COPY src ./src
-
-# Create public directory (Next.js requires it even if empty)
-RUN mkdir -p public
+# Copy all application files (respects .dockerignore)
+COPY . .
 
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED 1
