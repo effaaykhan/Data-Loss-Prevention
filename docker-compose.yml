@@ -141,8 +141,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # OpenSearch temporarily optional - manager will start even if OpenSearch is unhealthy
       opensearch:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:55000/health"]
       interval: 30s
