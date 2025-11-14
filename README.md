@@ -150,8 +150,8 @@ git clone https://github.com/effaaykhan/cybersentinel-dlp.git
 cd cybersentinel-dlp
 
 # 2. Configure environment
-cp server/.env.example server/.env
-nano server/.env  # Edit database passwords, JWT secret, etc.
+cp .env.example .env
+nano .env  # Edit database passwords, JWT secret, etc.
 
 # 3. Start all services
 docker-compose up -d
@@ -240,7 +240,7 @@ volumes:
 
 ### Environment Variables
 
-Edit `server/.env`:
+Edit `.env`:
 
 ```bash
 # Database
@@ -515,7 +515,7 @@ curl http://your-server.com:8000/api/v1/health
 
 ### Server Configuration
 
-Edit `server/.env`:
+Edit `.env`:
 
 ```bash
 # Database
