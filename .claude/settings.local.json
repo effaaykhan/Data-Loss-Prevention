@@ -70,7 +70,10 @@
       "Bash(git remote set-url:*)",
       "Bash(git fetch:*)",
       "Bash(git log:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(test:*)",
+      "Bash(git restore:*)",
+      "Bash(docker logs:*)"
     ],
     "deny": [],
     "ask": []

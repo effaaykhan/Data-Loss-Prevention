@@ -126,8 +126,8 @@ services:
       - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
       - OPENSEARCH_USE_SSL=true
       - OPENSEARCH_VERIFY_CERTS=false
-      - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
-      - ALLOWED_HOSTS=["localhost", "127.0.0.1"]
+      - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","http://192.168.60.135:3000"]
+      - ALLOWED_HOSTS=["localhost","127.0.0.1","192.168.60.135","manager"]
     volumes:
       - ./server:/app
       - ./config:/etc/cybersentinel
