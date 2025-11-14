@@ -1,8 +1,8 @@
-# Multi-stage build for production-ready Next.js dashboard
+# Multi-stage build for Vite React dashboard
 
-FROM node:18-slim AS deps
+# Stage 1: Build the application
+FROM node:18-slim AS builder
 
-# Install dependencies only when needed
 WORKDIR /app
 
 # Copy package files
@@ -11,50 +11,27 @@ COPY package.json package-lock.json* ./
 # Install dependencies
 RUN npm ci
 
-# Rebuild the source code only when needed
-FROM node:18-slim AS builder
-WORKDIR /app
-
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
-
-# Copy all application files (respects .dockerignore)
+# Copy application source
 COPY . .
 
-# Set environment variables for build
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV NODE_ENV production
-
-# Build application
+# Build the application
 RUN npm run build
 
-# Production image, copy all the files and run next
-FROM node:18-slim AS runner
-WORKDIR /app
+# Stage 2: Production image with nginx
+FROM nginx:alpine AS runner
 
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Create non-root user
-RUN groupadd --system --gid 1001 nodejs && \
-    useradd --system --uid 1001 --gid nodejs nextjs
-
-# Copy necessary files
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-# Set proper permissions
-RUN chown -R nextjs:nodejs /app
-
-# Switch to non-root user
-USER nextjs
+# Copy built files from builder stage
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Expose port
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
 
-# Run application
-CMD ["node", "server.js"]
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
