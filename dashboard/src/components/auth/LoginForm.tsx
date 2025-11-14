@@ -1,13 +1,10 @@
-'use client'
-
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useAuthStore } from '@/lib/store/auth'
+import { useNavigate } from 'react-router-dom'
+import { useAuthStore } from '../../lib/store/auth'
 import { Shield, Mail, Lock, AlertCircle } from 'lucide-react'
-import toast from 'react-hot-toast'
 
 export default function LoginForm() {
-  const router = useRouter()
+  const navigate = useNavigate()
   const { login } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -21,12 +18,10 @@ export default function LoginForm() {
 
     try {
       await login(email, password)
-      toast.success('Login successful!')
-      router.push('/dashboard')
+      navigate('/dashboard')
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || 'Invalid credentials'
+      const errorMessage = err instanceof Error ? err.message : 'Invalid credentials'
       setError(errorMessage)
-      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }

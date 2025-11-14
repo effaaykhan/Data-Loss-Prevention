@@ -60,12 +60,13 @@ USER dlpuser
 EXPOSE 8000
 EXPOSE 55000
 
-# Health check - use PORT env var or default to 55000
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-55000}/health || exit 1
-
-# Set default number of workers
+# Set default port and workers
+ENV PORT=${PORT:-55000}
 ENV UVICORN_WORKERS=${UVICORN_WORKERS:-4}
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
 # Run application
-CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS}
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${UVICORN_WORKERS}
