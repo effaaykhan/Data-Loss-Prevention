@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import axios from 'axios'
 
 interface AuthState {
   isAuthenticated: boolean
@@ -24,36 +25,47 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
 
       login: async (email: string, password: string) => {
-        // Mock authentication - credentials: admin / admin
-        const VALID_USERNAME = 'admin'
-        const VALID_PASSWORD = 'admin'
-
-        // Trim whitespace from inputs
+        // Call real backend API
         const cleanEmail = email.trim()
         const cleanPassword = password.trim()
 
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 500))
+        try {
+          // OAuth2 requires form data with username/password fields
+          const formData = new URLSearchParams()
+          formData.append('username', cleanEmail)
+          formData.append('password', cleanPassword)
 
-        // Validate credentials
-        if (cleanEmail !== VALID_USERNAME || cleanPassword !== VALID_PASSWORD) {
-          throw new Error('Invalid username or password')
+          const response = await axios.post('/api/v1/auth/login', formData, {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+          })
+
+          const { access_token, refresh_token } = response.data
+
+          // Decode token to get user info (simple base64 decode of JWT payload)
+          const tokenPayload = JSON.parse(atob(access_token.split('.')[1]))
+
+          set({
+            isAuthenticated: true,
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            user: {
+              email: tokenPayload.email || cleanEmail,
+              role: tokenPayload.role || 'admin',
+              id: tokenPayload.sub || 'unknown',
+            },
+          })
+        } catch (error: any) {
+          console.error('Login error:', error)
+          if (error.response?.status === 401) {
+            throw new Error('Invalid username or password')
+          } else if (error.response?.data?.detail) {
+            throw new Error(error.response.data.detail)
+          } else {
+            throw new Error('Login failed. Please try again.')
+          }
         }
-
-        // Mock tokens
-        const mockAccessToken = 'mock-access-token-' + Date.now()
-        const mockRefreshToken = 'mock-refresh-token-' + Date.now()
-
-        set({
-          isAuthenticated: true,
-          accessToken: mockAccessToken,
-          refreshToken: mockRefreshToken,
-          user: {
-            email: VALID_USERNAME,
-            role: 'admin',
-            id: 'admin-001',
-          },
-        })
       },
 
       logout: () => {

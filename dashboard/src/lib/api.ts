@@ -30,8 +30,13 @@ apiClient.interceptors.response.use(
       try {
         const refreshToken = useAuthStore.getState().refreshToken
         const response = await axios.post(
-          `${import.meta.env.VITE_API_URL}/auth/refresh`,
-          { refresh_token: refreshToken }
+          '/api/v1/auth/refresh',
+          { refresh_token: refreshToken },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
         )
 
         const { access_token, refresh_token } = response.data
@@ -43,7 +48,7 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest)
       } catch (refreshError) {
         useAuthStore.getState().logout()
-        window.location.href = '/'
+        window.location.href = '/login'
         return Promise.reject(refreshError)
       }
     }
