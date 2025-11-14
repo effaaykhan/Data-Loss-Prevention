@@ -73,15 +73,12 @@ services:
       - "9600:9600"
     environment:
       - discovery.type=single-node
-      - bootstrap.memory_lock=true
+      - bootstrap.memory_lock=false
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
-      - plugins.security.disabled=false
-      - "DISABLE_INSTALL_DEMO_CONFIG=true"
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=false
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -89,10 +86,10 @@ services:
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
       test: ["CMD-SHELL", "curl -f -k -u admin:${OPENSEARCH_PASSWORD:-CyberSentinel2025!} https://localhost:9200/_cluster/health || exit 1"]
-      interval: 45s
-      timeout: 15s
+      interval: 30s
+      timeout: 10s
       retries: 10
-      start_period: 60s
+      start_period: 90s
     restart: unless-stopped
 
   # DLP Manager (FastAPI Backend) - Port 55000 (Wazuh-style)
