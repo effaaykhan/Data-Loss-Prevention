@@ -177,6 +177,7 @@ EVENT_INDEX_SETTINGS = {
 async def init_opensearch() -> None:
     """
     Initialize OpenSearch connection and create index templates
+    OpenSearch is optional - server will start even if OpenSearch is unavailable
     """
     global opensearch_client
 
@@ -192,9 +193,9 @@ async def init_opensearch() -> None:
             verify_certs=settings.OPENSEARCH_VERIFY_CERTS,
             ssl_show_warn=False,
             connection_class=RequestsHttpConnection,
-            timeout=30,
-            max_retries=3,
-            retry_on_timeout=True
+            timeout=10,
+            max_retries=2,
+            retry_on_timeout=False
         )
 
         # Test connection
@@ -215,8 +216,14 @@ async def init_opensearch() -> None:
         logger.info("OpenSearch initialization complete")
 
     except Exception as e:
-        logger.error("Failed to connect to OpenSearch", error=str(e))
-        raise
+        logger.warning(
+            "Failed to connect to OpenSearch - continuing without it",
+            error=str(e),
+            host=settings.OPENSEARCH_HOST
+        )
+        # Set client to None to indicate OpenSearch is unavailable
+        opensearch_client = None
+        # DO NOT raise - allow server to start without OpenSearch
 
 
 async def close_opensearch() -> None:
@@ -316,7 +323,8 @@ async def index_event(event: Dict[str, Any]) -> str:
     Index a single event to OpenSearch
     """
     if opensearch_client is None:
-        raise RuntimeError("OpenSearch not initialized")
+        logger.debug("OpenSearch unavailable - skipping event indexing", event_id=event.get('event_id'))
+        return "opensearch_unavailable"
 
     # Ensure today's index exists
     index_name = await ensure_daily_index()
@@ -356,7 +364,8 @@ async def bulk_index_events(events: List[Dict[str, Any]]) -> Dict[str, int]:
     Bulk index multiple events to OpenSearch
     """
     if opensearch_client is None:
-        raise RuntimeError("OpenSearch not initialized")
+        logger.debug("OpenSearch unavailable - skipping bulk indexing", event_count=len(events))
+        return {"indexed": 0, "errors": 0, "skipped": len(events)}
 
     if not events:
         return {"indexed": 0, "errors": 0}
@@ -420,7 +429,8 @@ async def search_events(
     Search events in OpenSearch
     """
     if opensearch_client is None:
-        raise RuntimeError("OpenSearch not initialized")
+        logger.debug("OpenSearch unavailable - returning empty search results")
+        return {"total": 0, "hits": [], "took": 0}
 
     # Determine indices to search
     if start_date and end_date:

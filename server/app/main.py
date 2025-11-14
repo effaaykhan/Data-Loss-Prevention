@@ -204,11 +204,18 @@ async def readiness_check() -> dict:
     from app.core.opensearch import opensearch_client
     from sqlalchemy import text
 
+    services_status = {
+        "database": "disconnected",
+        "cache": "disconnected",
+        "search": "unavailable"
+    }
+
     try:
         # Check PostgreSQL connection
         if postgres_engine:
             async with postgres_engine.begin() as conn:
                 await conn.execute(text("SELECT 1"))
+            services_status["database"] = "connected"
 
         # Check MongoDB connection
         if mongodb_client:
@@ -217,17 +224,38 @@ async def readiness_check() -> dict:
         # Check Redis connection
         if redis_client:
             await redis_client.ping()
+            services_status["cache"] = "connected"
 
-        # Check OpenSearch connection
+        # Check OpenSearch connection (optional - not required for readiness)
         if opensearch_client:
-            await opensearch_client.info()
+            try:
+                await opensearch_client.info()
+                services_status["search"] = "connected"
+            except Exception:
+                services_status["search"] = "unavailable"
+                logger.warning("OpenSearch unavailable during readiness check")
+
+        # Server is ready if database and cache are connected
+        # OpenSearch is optional
+        is_ready = (services_status["database"] == "connected" and
+                   services_status["cache"] == "connected")
+
+        if not is_ready:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "status": "unready",
+                    "services": services_status,
+                },
+            )
 
         return {
             "status": "ready",
-            "database": "connected",
-            "cache": "connected",
-            "search": "connected",
+            **services_status
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Readiness check failed", error=str(e))
         raise HTTPException(
@@ -235,6 +263,7 @@ async def readiness_check() -> dict:
             detail={
                 "status": "unready",
                 "error": str(e),
+                "services": services_status
             },
         )
 
