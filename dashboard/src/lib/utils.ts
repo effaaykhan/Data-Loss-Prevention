@@ -20,9 +20,15 @@ export function formatDate(date: string | Date, formatStr = 'PPpp'): string {
 /**
  * Format date as relative time (e.g., "2 hours ago")
  */
-export function formatRelativeTime(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return formatDistanceToNow(d, { addSuffix: true })
+export function formatRelativeTime(date: string | Date | null | undefined): string {
+  if (!date) return 'Never'
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date
+    if (isNaN(d.getTime())) return 'Invalid date'
+    return formatDistanceToNow(d, { addSuffix: true })
+  } catch (error) {
+    return 'Invalid date'
+  }
 }
 
 /**

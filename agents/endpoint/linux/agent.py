@@ -22,11 +22,13 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 # Configure logging
+log_file = os.path.expanduser('~/cybersentinel_agent.log')
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/var/log/cybersentinel_agent.log'),
+        logging.FileHandler(log_file),
         logging.StreamHandler()
     ]
 )
@@ -35,14 +37,24 @@ logger = logging.getLogger('CyberSentinelAgent')
 
 class AgentConfig:
     """Agent configuration"""
-    def __init__(self, config_path: str = "/etc/cybersentinel/agent_config.json"):
-        self.config_path = config_path
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            # Use local config file if /etc is not accessible
+            local_config = os.path.expanduser("~/cybersentinel_agent_config.json")
+            if os.path.exists("/etc/cybersentinel/agent_config.json"):
+                self.config_path = "/etc/cybersentinel/agent_config.json"
+            elif os.path.exists("agent_config.json"):
+                self.config_path = "agent_config.json"
+            else:
+                self.config_path = local_config
+        else:
+            self.config_path = config_path
         self.config = self._load_config()
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file"""
         default_config = {
-            "server_url": "http://10.220.143.130:8000/api/v1",
+            "server_url": "http://172.23.19.78:55000/api/v1",
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
             "heartbeat_interval": 60,
@@ -73,12 +85,16 @@ class AgentConfig:
                     default_config.update(loaded_config)
             except Exception as e:
                 logger.error(f"Error loading config: {e}, using defaults")
-        else:
-            # Create config directory if it doesn't exist
-            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-
-        # Save config
+        
+        # Save config (create directory if needed and accessible)
         try:
+            config_dir = os.path.dirname(self.config_path)
+            if config_dir and not os.path.exists(config_dir):
+                try:
+                    os.makedirs(config_dir, exist_ok=True)
+                except PermissionError:
+                    # Fall back to current directory if can't create parent
+                    self.config_path = os.path.basename(self.config_path)
             with open(self.config_path, 'w') as f:
                 json.dump(default_config, f, indent=2)
         except Exception as e:
@@ -369,7 +385,7 @@ class DLPAgent:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
-            response = requests.post(
+            response = requests.put(
                 f"{self.server_url}/agents/{self.agent_id}/heartbeat",
                 json=data,
                 timeout=5

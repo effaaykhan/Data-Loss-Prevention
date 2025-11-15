@@ -6,7 +6,7 @@ Wazuh-style event indexing with daily rolling indices
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import structlog
-from opensearchpy import AsyncOpenSearch, RequestsHttpConnection
+from opensearchpy import AsyncOpenSearch
 from opensearchpy.exceptions import NotFoundError, RequestError
 
 from app.core.config import settings
@@ -182,20 +182,24 @@ async def init_opensearch() -> None:
 
     try:
         # Create OpenSearch client
-        opensearch_client = AsyncOpenSearch(
-            hosts=[{
+        client_kwargs = {
+            'hosts': [{
                 'host': settings.OPENSEARCH_HOST,
                 'port': settings.OPENSEARCH_PORT
             }],
-            http_auth=(settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD),
-            use_ssl=settings.OPENSEARCH_USE_SSL,
-            verify_certs=settings.OPENSEARCH_VERIFY_CERTS,
-            ssl_show_warn=False,
-            connection_class=RequestsHttpConnection,
-            timeout=30,
-            max_retries=3,
-            retry_on_timeout=True
-        )
+            'use_ssl': settings.OPENSEARCH_USE_SSL,
+            'verify_certs': settings.OPENSEARCH_VERIFY_CERTS,
+            'ssl_show_warn': False,
+            'timeout': 30,
+            'max_retries': 3,
+            'retry_on_timeout': True
+        }
+        
+        # Only add auth if SSL is enabled (security plugin active)
+        if settings.OPENSEARCH_USE_SSL:
+            client_kwargs['http_auth'] = (settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD)
+        
+        opensearch_client = AsyncOpenSearch(**client_kwargs)
 
         # Test connection
         info = await opensearch_client.info()
@@ -226,8 +230,13 @@ async def close_opensearch() -> None:
     global opensearch_client
 
     if opensearch_client is not None:
-        await opensearch_client.close()
-        logger.info("OpenSearch connection closed")
+        try:
+            await opensearch_client.close()
+            logger.info("OpenSearch connection closed")
+        except Exception as e:
+            logger.warning(f"Error closing OpenSearch connection: {e}")
+        finally:
+            opensearch_client = None
 
 
 async def create_index_template() -> None:
@@ -251,7 +260,11 @@ async def create_index_template() -> None:
 
     try:
         # Check if template exists
-        exists = await opensearch_client.indices.exists_index_template(name=template_name)
+        try:
+            result = await opensearch_client.indices.get_index_template(name=template_name)
+            exists = True
+        except NotFoundError:
+            exists = False
 
         if exists:
             # Update existing template

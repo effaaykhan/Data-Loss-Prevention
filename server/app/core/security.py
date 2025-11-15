@@ -212,11 +212,15 @@ def require_role(required_role: str):
     async def role_checker(current_user: User = Depends(get_current_user)):
         user_role = current_user.role
 
-        # Role hierarchy: admin > analyst > viewer
-        role_hierarchy = {"admin": 3, "analyst": 2, "viewer": 1}
+        # Role hierarchy: ADMIN > ANALYST > VIEWER
+        role_hierarchy = {"ADMIN": 3, "ANALYST": 2, "VIEWER": 1}
+        
+        # Convert role to string if it's an enum
+        user_role_str = str(user_role) if hasattr(user_role, 'value') else user_role
+        required_role_str = required_role.upper() if isinstance(required_role, str) else str(required_role)
 
-        user_level = role_hierarchy.get(user_role, 0)
-        required_level = role_hierarchy.get(required_role, 0)
+        user_level = role_hierarchy.get(user_role_str, 0)
+        required_level = role_hierarchy.get(required_role_str, 0)
 
         if user_level < required_level:
             raise HTTPException(

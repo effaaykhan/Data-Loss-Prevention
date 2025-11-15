@@ -19,11 +19,11 @@ async def main():
     # Create users table
     create_users_table = """
     CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         email VARCHAR(255) UNIQUE NOT NULL,
         hashed_password VARCHAR(255) NOT NULL,
         full_name VARCHAR(255),
-        role VARCHAR(50) DEFAULT 'user',
+        role VARCHAR(50) DEFAULT 'VIEWER',
         organization VARCHAR(255),
         is_active BOOLEAN DEFAULT TRUE,
         is_verified BOOLEAN DEFAULT FALSE,
@@ -48,7 +48,7 @@ async def main():
             hashed_password = get_password_hash("admin")
             insert_admin = """
             INSERT INTO users (email, hashed_password, full_name, role, is_active, is_verified)
-            VALUES ('admin', :password, 'Administrator', 'admin', TRUE, TRUE)
+            VALUES ('admin', :password, 'Administrator', 'ADMIN', TRUE, TRUE)
             """
             await conn.execute(
                 text(insert_admin),

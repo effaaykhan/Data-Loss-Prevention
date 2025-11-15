@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from './store/auth'
 
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:55000/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -29,7 +29,7 @@ apiClient.interceptors.response.use(
       try {
         const refreshToken = useAuthStore.getState().refreshToken
         const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
+          `${import.meta.env.VITE_API_URL || 'http://localhost:55000/api/v1'}/auth/refresh`,
           { refresh_token: refreshToken }
         )
 
@@ -50,6 +50,86 @@ apiClient.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// Helper functions for Dashboard
+export const getStats = async () => {
+  const { data } = await apiClient.get('/dashboard/overview')
+  return data
+}
+
+export const getEventTimeSeries = async (params?: { interval?: string; hours?: number }) => {
+  const { data } = await apiClient.get('/dashboard/timeline', {
+    params: params || { hours: 24 },
+  })
+  return data
+}
+
+export const getEventsByType = async () => {
+  const { data } = await apiClient.get('/events/stats/by-type')
+  return data
+}
+
+export const getEventsBySeverity = async () => {
+  const { data } = await apiClient.get('/events/stats/by-severity')
+  return data
+}
+
+// Export individual functions for direct imports
+export const getAgents = async (params?: any) => {
+  const { data } = await apiClient.get('/agents', { params })
+  return data
+}
+
+export const deleteAgent = async (agentId: string) => {
+  const { data } = await apiClient.delete(`/agents/${agentId}`)
+  return data
+}
+
+// Additional exports for direct imports
+export const getAlerts = async () => {
+  const { data } = await apiClient.get('/alerts')
+  return data
+}
+
+export const searchEvents = async (params?: any) => {
+  const { data } = await apiClient.get('/events', { params })
+  return data
+}
+
+// Type exports
+export type Agent = {
+  id?: string
+  agent_id: string
+  name: string
+  os: string
+  ip_address: string
+  status: string
+  last_seen: string
+  created_at: string
+  version?: string
+  hostname?: string
+  os_version?: string
+  capabilities?: Record<string, boolean>
+}
+
+export type Event = {
+  id: string
+  agent_id: string
+  event_type: string
+  severity: string
+  classification_score?: number
+  classification_labels?: string[]
+  classification_type?: string
+  file_path?: string
+  timestamp: string | Date
+  content?: string
+  blocked?: boolean
+  policy_id?: string | null
+  action_taken?: string
+  destination?: string | null
+  source?: string
+  user_email?: string
+}
 
 export const api = {
   // Dashboard

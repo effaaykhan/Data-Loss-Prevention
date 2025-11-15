@@ -56,15 +56,16 @@ RUN useradd -m -u 1000 dlpuser && \
 # Switch to non-root user
 USER dlpuser
 
-# Expose port
-EXPOSE 8000
+# Expose port (default 55000, can be overridden)
+EXPOSE 55000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-55000}/health || exit 1
 
 # Set default number of workers
 ENV UVICORN_WORKERS=${UVICORN_WORKERS:-4}
+ENV PORT=55000
 
 # Run application
-CMD uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS}
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-55000} --workers ${UVICORN_WORKERS}

@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import axios from 'axios'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:55000/api/v1'
 
 interface AuthState {
   isAuthenticated: boolean
@@ -17,43 +20,52 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       isAuthenticated: false,
       user: null,
       accessToken: null,
       refreshToken: null,
 
       login: async (email: string, password: string) => {
-        // Mock authentication - credentials: admin / admin
-        const VALID_USERNAME = 'admin'
-        const VALID_PASSWORD = 'admin'
-
         // Trim whitespace from inputs
         const cleanEmail = email.trim()
         const cleanPassword = password.trim()
 
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 500))
+        try {
+          // Call the real API login endpoint
+          // OAuth2PasswordRequestForm expects form data
+          const formData = new URLSearchParams()
+          formData.append('username', cleanEmail)
+          formData.append('password', cleanPassword)
 
-        // Validate credentials
-        if (cleanEmail !== VALID_USERNAME || cleanPassword !== VALID_PASSWORD) {
-          throw new Error('Invalid username or password')
+          const response = await axios.post(
+            `${API_URL}/auth/login`,
+            formData,
+            {
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+            }
+          )
+
+          const { access_token, refresh_token } = response.data
+
+          // Get user info from token (decode JWT)
+          // For now, we'll set basic user info - in production, decode the token
+          set({
+            isAuthenticated: true,
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            user: {
+              email: cleanEmail,
+              role: 'admin', // Will be decoded from token in production
+              id: 'user-001', // Will be decoded from token in production
+            },
+          })
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.detail || 'Invalid email or password'
+          throw new Error(errorMessage)
         }
-
-        // Mock tokens
-        const mockAccessToken = 'mock-access-token-' + Date.now()
-        const mockRefreshToken = 'mock-refresh-token-' + Date.now()
-
-        set({
-          isAuthenticated: true,
-          accessToken: mockAccessToken,
-          refreshToken: mockRefreshToken,
-          user: {
-            email: VALID_USERNAME,
-            role: 'admin',
-            id: 'admin-001',
-          },
-        })
       },
 
       logout: () => {

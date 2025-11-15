@@ -45,7 +45,7 @@ class AgentConfig:
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file"""
         default_config = {
-            "server_url": "http://10.220.143.130:8000/api/v1",
+            "server_url": "http://localhost:55000/api/v1",
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
             "heartbeat_interval": 60,
@@ -205,15 +205,18 @@ class DLPAgent:
         monitored_paths = self.config.get("monitoring", {}).get("monitored_paths", [])
 
         for path in monitored_paths:
-            if os.path.exists(path):
+            # Expand environment variables (e.g., %USERNAME%)
+            expanded_path = os.path.expandvars(path)
+            
+            if os.path.exists(expanded_path):
                 event_handler = FileMonitorHandler(self)
                 observer = Observer()
-                observer.schedule(event_handler, path, recursive=True)
+                observer.schedule(event_handler, expanded_path, recursive=True)
                 observer.start()
                 self.observers.append(observer)
-                logger.info(f"Monitoring path: {path}")
+                logger.info(f"Monitoring path: {expanded_path}")
             else:
-                logger.warning(f"Path does not exist: {path}")
+                logger.warning(f"Path does not exist: {expanded_path}")
 
     def monitor_clipboard(self):
         """Monitor clipboard for sensitive data"""
@@ -258,6 +261,7 @@ class DLPAgent:
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
+            logger.info(f"File event detected: {event_type} - {file_path}")
             # Get file info
             file_size = os.path.getsize(file_path)
             max_size = self.config.get("classification", {}).get("max_file_size_mb", 10) * 1024 * 1024
@@ -294,10 +298,11 @@ class DLPAgent:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
+            logger.info(f"Sending file event: {event_type} - {Path(file_path).name} - Severity: {classification.get('severity', 'low')}")
             self.send_event(event_data)
 
         except Exception as e:
-            logger.error(f"Error handling file event: {e}")
+            logger.error(f"Error handling file event: {e}", exc_info=True)
 
     def handle_clipboard_event(self, content: str):
         """Handle clipboard event"""
@@ -447,7 +452,7 @@ class DLPAgent:
                 "timestamp": datetime.utcnow().isoformat()
             }
 
-            response = requests.post(
+            response = requests.put(
                 f"{self.server_url}/agents/{self.agent_id}/heartbeat",
                 json=data,
                 timeout=5

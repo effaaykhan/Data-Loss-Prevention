@@ -203,7 +203,7 @@ export default function Agents() {
                     </td>
                     <td>
                       <span className="text-sm text-gray-600">
-                        {formatRelativeTime(agent.registered_at)}
+                        {formatRelativeTime(agent.created_at)}
                       </span>
                     </td>
                     <td>

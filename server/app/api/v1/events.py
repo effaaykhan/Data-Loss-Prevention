@@ -44,6 +44,13 @@ class DLPEvent(BaseModel):
     blocked: bool
 
 
+class EventsResponse(BaseModel):
+    events: List[DLPEvent]
+    total: int
+    skip: int
+    limit: int
+
+
 class EventQueryParams(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -93,13 +100,13 @@ async def create_event(
     return {"status": "success", "event_id": event.event_id}
 
 
-@router.get("/", response_model=List[DLPEvent])
+@router.get("/", response_model=EventsResponse)
 async def get_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     severity: Optional[str] = None,
     source: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
+    current_user = Depends(get_current_user),
 ):
     """
     Get DLP events with pagination and filtering
@@ -115,16 +122,45 @@ async def get_events(
 
     # Query MongoDB
     cursor = db.dlp_events.find(query_filter).sort("timestamp", -1).skip(skip).limit(limit)
-    events = await cursor.to_list(length=limit)
+    events_raw = await cursor.to_list(length=limit)
+    
+    # Convert MongoDB documents to match DLPEvent model
+    events = []
+    for event_doc in events_raw:
+        # Remove MongoDB _id field and ensure all required fields exist
+        event_dict = {k: v for k, v in event_doc.items() if k != "_id"}
+        
+        # Ensure required fields have defaults if missing
+        if "classification_score" not in event_dict:
+            event_dict["classification_score"] = 0.0
+        if "classification_labels" not in event_dict:
+            event_dict["classification_labels"] = []
+        if "policy_id" not in event_dict:
+            event_dict["policy_id"] = None
+        if "file_path" not in event_dict:
+            event_dict["file_path"] = None
+        if "destination" not in event_dict:
+            event_dict["destination"] = None
+        
+        events.append(event_dict)
+    
+    # Get total count for pagination
+    total = await db.dlp_events.count_documents(query_filter)
 
     logger.info(
         "Events queried",
-        user=current_user["email"],
+        user=current_user.email,
         count=len(events),
+        total=total,
         filters=query_filter,
     )
 
-    return events
+    return {
+        "events": events,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
 
 
 @router.get("/{event_id}", response_model=DLPEvent)
@@ -175,3 +211,51 @@ async def get_event_stats(
         "by_severity": {item["_id"]: item["count"] for item in severity_stats},
         "by_source": {item["_id"]: item["count"] for item in source_stats},
     }
+
+
+@router.get("/stats/by-type")
+async def get_events_by_type(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get events grouped by type for dashboard charts
+    """
+    db = get_mongodb()
+
+    # Aggregate events by event_type
+    pipeline = [
+        {"$group": {"_id": "$event_type", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    type_stats = await db.dlp_events.aggregate(pipeline).to_list(None)
+    
+    # Format for chart component
+    return [
+        {"type": item["_id"] or "unknown", "count": item["count"]}
+        for item in type_stats
+    ]
+
+
+@router.get("/stats/by-severity")
+async def get_events_by_severity(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get events grouped by severity for dashboard charts
+    """
+    db = get_mongodb()
+
+    # Aggregate events by severity
+    pipeline = [
+        {"$group": {"_id": "$severity", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    severity_stats = await db.dlp_events.aggregate(pipeline).to_list(None)
+    
+    # Format for chart component
+    return [
+        {"severity": item["_id"] or "unknown", "count": item["count"]}
+        for item in severity_stats
+    ]

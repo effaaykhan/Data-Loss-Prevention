@@ -1,8 +1,26 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useAuthStore } from '@/lib/store/auth'
 import Sidebar from './Sidebar'
 import Header from './Header'
 
 export default function Layout() {
+  const { isAuthenticated } = useAuthStore()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return null
+  }
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}

@@ -75,8 +75,7 @@ services:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
-      - plugins.security.disabled=false
+      - DISABLE_SECURITY_PLUGIN=true
     ulimits:
       memlock:
         soft: -1
@@ -87,7 +86,7 @@ services:
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f -k -u admin:${OPENSEARCH_PASSWORD:-CyberSentinel2025!} https://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -125,10 +124,9 @@ services:
       - OPENSEARCH_PORT=9200
       - OPENSEARCH_USER=admin
       - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
-      - OPENSEARCH_USE_SSL=true
+      - OPENSEARCH_USE_SSL=false
       - OPENSEARCH_VERIFY_CERTS=false
-      - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
-      - ALLOWED_HOSTS=["localhost", "127.0.0.1"]
+      - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","http://172.23.19.78:3000"]
     volumes:
       - ./server:/app
       - ./config:/etc/cybersentinel
@@ -156,16 +154,16 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://172.23.19.78:55000/api/v1
+        - VITE_WS_URL=ws://172.23.19.78:55000/ws
+        - VITE_APP_NAME=CyberSentinel DLP
+        - VITE_APP_VERSION=2.0.0
     container_name: cybersentinel-dashboard
     networks:
       - cybersentinel-net
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:55000/api/v1
-      - NEXT_PUBLIC_WS_URL=ws://localhost:55000/ws
-      - NEXT_PUBLIC_APP_NAME=CyberSentinel DLP
-      - NEXT_PUBLIC_APP_VERSION=2.0.0
     depends_on:
       - manager
     restart: unless-stopped

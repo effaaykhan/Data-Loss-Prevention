@@ -35,11 +35,14 @@ class TokenBlacklistService:
         Check if a token is in the blacklist
         """
         try:
+            if not self.redis:
+                return False  # If Redis is not available, assume token is not blacklisted
             jti = self._get_jti_from_token(token)
-            return await self.redis.exists(f"blacklist:{jti}")
+            result = await self.redis.exists(f"blacklist:{jti}")
+            return bool(result)
         except Exception as e:
             logger.error("Failed to check token blacklist", error=str(e))
-            return True  # Fail safe
+            return False  # Fail safe - if we can't check, assume token is valid
 
     def _get_jti_from_token(self, token: str) -> str:
         """

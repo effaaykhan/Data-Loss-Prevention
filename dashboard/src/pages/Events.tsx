@@ -22,8 +22,8 @@ export default function Events() {
     queryKey: ['events', activeQuery],
     queryFn: () =>
       activeQuery
-        ? searchEvents(activeQuery, { size: 100 })
-        : searchEvents('*', { size: 100 }),
+        ? searchEvents({ query: activeQuery, limit: 100 })
+        : searchEvents({ limit: 100 }),
     refetchInterval: 15000, // Refresh every 15s
   })
 
@@ -154,7 +154,7 @@ export default function Events() {
           ) : (
             events.map((event) => (
               <div
-                key={event.event_id}
+                key={event.id || event.event_id}
                 className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
                 onClick={() => setSelectedEvent(event)}
               >
@@ -165,16 +165,16 @@ export default function Events() {
                       'p-2 rounded-lg',
                       event.blocked
                         ? 'bg-red-100'
-                        : event.event.severity === 'critical'
+                        : event.severity === 'critical'
                         ? 'bg-red-50'
-                        : event.event.severity === 'high'
+                        : event.severity === 'high'
                         ? 'bg-orange-50'
                         : 'bg-blue-50'
                     )}
                   >
-                    {event.event.type === 'file' ? (
+                    {event.event_type === 'file' ? (
                       <FileText className="h-5 w-5 text-gray-700" />
-                    ) : event.event.type === 'usb' ? (
+                    ) : event.event_type === 'usb' ? (
                       <Shield className="h-5 w-5 text-gray-700" />
                     ) : (
                       <AlertTriangle className="h-5 w-5 text-gray-700" />
@@ -187,41 +187,40 @@ export default function Events() {
                       <span
                         className={cn(
                           'badge',
-                          getSeverityColor(event.event.severity)
+                          getSeverityColor(event.severity)
                         )}
                       >
-                        {event.event.severity}
+                        {event.severity}
                       </span>
                       <span className="badge badge-info">
-                        {event.event.type}
+                        {event.event_type}
                       </span>
                       {event.blocked && (
                         <span className="badge badge-danger">blocked</span>
                       )}
-                      {event.classification && event.classification.length > 0 && (
+                      {event.classification_labels && event.classification_labels.length > 0 && (
                         <span className="badge bg-purple-100 text-purple-800">
-                          {event.classification[0].label}
+                          {event.classification_labels[0]}
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-3 text-sm text-gray-600">
                       <span className="font-medium text-gray-900">
-                        {event.agent.name}
+                        {event.agent_id || 'Unknown Agent'}
                       </span>
                       <span className="text-gray-400">•</span>
-                      <span>{formatDate(event['@timestamp'], 'PPpp')}</span>
+                      <span>{formatDate(event.timestamp, 'PPpp')}</span>
                       <span className="text-gray-400">•</span>
                       <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                        {event.event_id}
+                        {event.id || event.event_id}
                       </code>
                     </div>
 
                     {/* Event Details */}
-                    {event.file && (
+                    {event.file_path && (
                       <p className="mt-2 text-sm text-gray-700">
-                        <strong>File:</strong> {truncate(event.file.path, 80)}
-                        {event.file.size && ` (${(event.file.size / 1024).toFixed(1)} KB)`}
+                        <strong>File:</strong> {truncate(event.file_path, 80)}
                       </p>
                     )}
 

@@ -57,7 +57,7 @@ class Settings(BaseSettings):
             password=self.POSTGRES_PASSWORD,
             host=self.POSTGRES_HOST,
             port=self.POSTGRES_PORT,
-            path=f"/{self.POSTGRES_DB}",
+            path=self.POSTGRES_DB,
         ))
 
     # MongoDB Configuration
@@ -77,7 +77,7 @@ class Settings(BaseSettings):
             password=self.MONGODB_PASSWORD,
             host=self.MONGODB_HOST,
             port=self.MONGODB_PORT,
-            path=f"/{self.MONGODB_DB}",
+            path=self.MONGODB_DB,
             query="authSource=admin",
         ))
 

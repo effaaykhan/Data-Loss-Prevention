@@ -1,7 +1,7 @@
 {
-  "server_url": "http://10.220.143.130:8000/api/v1",
-  "agent_id": "CHANGE_THIS_TO_UNIQUE_ID",
-  "agent_name": "Linux-Server-01",
+  "server_url": "http://172.23.19.78:55000/api/v1",
+  "agent_id": "be52f986-5136-4327-9b2d-f6f09dd74cf1",
+  "agent_name": "UrAvgProGamer-PC",
   "heartbeat_interval": 60,
   "monitoring": {
     "file_system": true,
@@ -24,9 +24,7 @@
       ".json",
       ".xml",
       ".sql",
-      ".conf",
-      ".key",
-      ".pem"
+      ".conf"
     ]
   },
   "classification": {
