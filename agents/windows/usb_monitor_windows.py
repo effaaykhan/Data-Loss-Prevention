@@ -3,6 +3,12 @@ Windows USB Monitor
 Uses WMI to detect USB device connections
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import structlog
 from typing import Dict, Any
 
@@ -17,7 +23,7 @@ except ImportError:
     logger.warning("WMI not available, USB monitoring disabled")
 
 
-from ..common.monitors.usb_monitor import USBMonitor
+from common.monitors.usb_monitor import USBMonitor
 
 
 class WindowsUSBMonitor(USBMonitor):

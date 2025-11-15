@@ -3,6 +3,12 @@ Windows Clipboard Monitor
 Uses pywin32 to access Windows clipboard
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import structlog
 from typing import Optional
 
@@ -18,7 +24,7 @@ except ImportError:
     logger.warning("pywin32 not available, clipboard monitoring disabled")
 
 
-from ..common.monitors.clipboard_monitor import ClipboardMonitor
+from common.monitors.clipboard_monitor import ClipboardMonitor
 
 
 class WindowsClipboardMonitor(ClipboardMonitor):
