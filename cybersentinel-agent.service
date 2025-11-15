@@ -1,0 +1,16 @@
+[Unit]
+Description=CyberSentinel DLP Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/cybersentinel
+Environment="PYTHONUNBUFFERED=1"
+Environment="CYBERSENTINEL_CONFIG=/etc/cybersentinel/agent.yml"
+ExecStart=/usr/bin/python3 /opt/cybersentinel/linux/agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
