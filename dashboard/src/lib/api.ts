@@ -137,7 +137,8 @@ export const api = {
   getDashboardOverview: async () => {
     const { data } = await apiClient.get('/dashboard/overview')
     return data
-  },
+    },
+}
 
 export const getEventTimeline = async (hours: number = 24) => {
   const { data } = await apiClient.get('/dashboard/timeline', {
@@ -156,63 +157,7 @@ export const getClassificationStats = async () => {
   return data
 }
 
-// Stats functions (aliases for backwards compatibility)
-export const getStats = async () => {
-  const { data } = await apiClient.get('/events/stats/summary')
-  return data
-}
-
-export const getEventTimeSeries = async (params?: any) => {
-  const { data } = await apiClient.get('/events/timeline', { params })
-  return data
-}
-
-export const getEventsByType = async () => {
-  const { data } = await apiClient.get('/events/stats/by-type')
-  return data
-}
-
-export const getEventsBySeverity = async () => {
-  const { data } = await apiClient.get('/events/stats/by-severity')
-  return data
-}
-
-// Agents functions
-export const getAgents = async (params?: any) => {
-  const { data } = await apiClient.get('/agents', { params })
-  return data
-}
-
-export const getAgent = async (agentId: string) => {
-  const { data } = await apiClient.get(`/agents/${agentId}`)
-  return data
-}
-
-export const createAgent = async (agent: any) => {
-  const { data } = await apiClient.post('/agents', agent)
-  return data
-}
-
-export const deleteAgent = async (agentId: string) => {
-  const { data } = await apiClient.delete(`/agents/${agentId}`)
-  return data
-}
-
-export const getAgentsSummary = async () => {
-  const { data} = await apiClient.get('/agents/stats/summary')
-  return data
-}
-
-// Events functions
-export const getEvents = async (params?: any) => {
-  const { data } = await apiClient.get('/events', { params })
-  return data
-}
-
-export const searchEvents = async (params?: any) => {
-  const { data } = await apiClient.get('/events/search', { params })
-  return data
-}
+// Stats functions (aliases for backwards compatibility) - removed duplicates, using exports from above
 
 export const getEvent = async (eventId: string) => {
   const { data } = await apiClient.get(`/events/${eventId}`)
@@ -303,11 +248,6 @@ export const getUserStats = async () => {
 }
 
 // Alerts functions
-export const getAlerts = async () => {
-  const { data } = await apiClient.get('/alerts')
-  return data
-}
-
 export const acknowledgeAlert = async (alertId: string) => {
   const { data } = await apiClient.post(`/alerts/${alertId}/acknowledge`)
   return data

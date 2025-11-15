@@ -44,8 +44,10 @@ class AgentConfig:
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file"""
+        # Check environment variable first, then config file, then default
+        default_server_url = os.getenv("CYBERSENTINEL_SERVER_URL", "http://localhost:55000/api/v1")
         default_config = {
-            "server_url": "http://localhost:55000/api/v1",
+            "server_url": default_server_url,
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
             "heartbeat_interval": 60,
@@ -73,6 +75,10 @@ class AgentConfig:
                     default_config.update(loaded_config)
             except Exception as e:
                 logger.error(f"Error loading config: {e}, using defaults")
+
+        # Environment variable takes precedence over config file
+        if os.getenv("CYBERSENTINEL_SERVER_URL"):
+            default_config["server_url"] = os.getenv("CYBERSENTINEL_SERVER_URL")
 
         # Save config
         with open(self.config_path, 'w') as f:
@@ -240,23 +246,48 @@ class DLPAgent:
 
     def monitor_usb(self):
         """Monitor USB device connections"""
-        logger.info("USB monitoring started")
-        c = wmi.WMI()
-
-        # Track known devices
-        known_devices = set()
-
-        while self.running:
+        def usb_monitor_thread():
             try:
-                for usb in c.Win32_USBHub():
-                    device_id = usb.DeviceID
-                    if device_id not in known_devices:
-                        known_devices.add(device_id)
-                        self.handle_usb_event(usb.Name, device_id)
-            except Exception as e:
-                logger.error(f"USB monitoring error: {e}")
+                # Initialize COM for this thread (required for WMI)
+                # Use CoInitializeEx with COINIT_MULTITHREADED for better thread safety
+                import pythoncom
+                try:
+                    # Try CoInitializeEx first (better for multithreaded scenarios)
+                    pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+                except AttributeError:
+                    # Fallback to CoInitialize if CoInitializeEx not available
+                    pythoncom.CoInitialize()
+                
+                try:
+                    logger.info("USB monitoring started")
+                    c = wmi.WMI()
 
-            time.sleep(5)
+                    # Track known devices
+                    known_devices = set()
+
+                    while self.running:
+                        try:
+                            for usb in c.Win32_USBHub():
+                                device_id = usb.DeviceID
+                                if device_id not in known_devices:
+                                    known_devices.add(device_id)
+                                    self.handle_usb_event(usb.Name, device_id)
+                        except Exception as e:
+                            logger.error(f"USB monitoring error: {e}", exc_info=True)
+
+                        time.sleep(5)
+                finally:
+                    # Cleanup COM
+                    try:
+                        pythoncom.CoUninitialize()
+                    except Exception as e:
+                        logger.debug(f"COM cleanup error (non-critical): {e}")
+            except Exception as e:
+                logger.error(f"USB monitoring failed: {e}", exc_info=True)
+        
+        # Start USB monitoring in a separate thread
+        usb_thread = threading.Thread(target=usb_monitor_thread, daemon=True)
+        usb_thread.start()
 
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""

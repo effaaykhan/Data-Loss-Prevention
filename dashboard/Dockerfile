@@ -45,6 +45,10 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
+# Install curl for healthcheck (Debian-based image uses apt-get)
+# Must be done before switching to non-root user
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
 # Set proper permissions
 RUN chown -R nodejs:nodejs /app
 
@@ -53,9 +57,6 @@ USER nodejs
 
 # Expose port
 EXPOSE 3000
-
-# Install curl for healthcheck
-RUN apk add --no-cache curl
 
 # Run vite preview server
 CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "3000"]

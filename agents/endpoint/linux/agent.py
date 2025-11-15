@@ -53,8 +53,10 @@ class AgentConfig:
 
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file"""
+        # Check environment variable first, then config file, then default
+        default_server_url = os.getenv("CYBERSENTINEL_SERVER_URL", "http://localhost:55000/api/v1")
         default_config = {
-            "server_url": "http://172.23.19.78:55000/api/v1",
+            "server_url": default_server_url,
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
             "heartbeat_interval": 60,

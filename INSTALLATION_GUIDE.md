@@ -381,9 +381,13 @@ curl http://YOUR_SERVER_IP:55000/api/v1/events?limit=10 \
 If deploying from WSL2, copy files to Windows drive:
 
 ```bash
-# From WSL terminal
+# From WSL terminal (if deploying to Windows via WSL)
+# Choose a location on your Windows machine (e.g., D:\CyberSentinelAgent)
 mkdir -p /mnt/d/CyberSentinelAgent
 cp -r agents/endpoint/windows/* /mnt/d/CyberSentinelAgent/
+
+# Or deploy directly on Windows:
+# Choose a location like C:\Program Files\CyberSentinel or D:\CyberSentinelAgent
 ```
 
 Or clone directly on Windows:
@@ -486,6 +490,8 @@ python agent.py
 2025-11-15 12:19:33 - INFO - Agent started successfully
 ```
 
+**Note:** If you see a USB monitoring threading error (`wmi.x_wmi_uninitialised_thread`), ensure you're using the latest `agent.py` file which includes the COM initialization fix. The error should not appear with the updated code.
+
 #### Run as Windows Service (Production)
 
 **Option A: Using NSSM (Recommended)**
@@ -584,6 +590,10 @@ Get-Service -Name "CyberSentinelDLP"
 **Issue: USB monitoring not working**
 - Run agent as Administrator
 - Verify Windows Management Instrumentation service is running
+- **USB Monitoring Threading Error:** If you see `wmi.x_wmi_uninitialised_thread` error:
+  - Ensure you're using the latest `agent.py` file (includes COM initialization fix)
+  - The fix uses `CoInitializeEx` with `COINIT_MULTITHREADED` flag for proper thread initialization
+  - If error persists, verify `pywin32` package is properly installed: `pip install --upgrade pywin32`
 
 **Issue: Environment variables not expanding**
 - Ensure using latest agent code (includes `os.path.expandvars()`)
@@ -595,23 +605,37 @@ Get-Service -Name "CyberSentinelDLP"
 
 ### Dashboard Configuration
 
-#### Environment Variables (Build Time)
+#### Environment Variables Configuration
+
+**Using .env file (Recommended):**
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and set:
+   - `SERVER_IP`: Your server IP or domain (default: `localhost`)
+   - `CORS_ORIGINS`: JSON array of allowed origins (default includes localhost)
+   - `VITE_API_URL`: Dashboard API URL (defaults to `http://localhost:55000/api/v1`)
+   - `VITE_WS_URL`: WebSocket URL (defaults to `ws://localhost:55000/ws`)
+   - Database passwords and `SECRET_KEY`
+
+**Manual Configuration (docker-compose.yml):**
 
 Set in `docker-compose.yml` under `dashboard.build.args`:
 
-- `VITE_API_URL`: API server URL (e.g., `http://172.23.19.78:55000/api/v1`)
-- `VITE_WS_URL`: WebSocket URL (e.g., `ws://172.23.19.78:55000/ws`)
-- `VITE_APP_NAME`: Application name
-- `VITE_APP_VERSION`: Application version
-
-#### CORS Configuration
+- `VITE_API_URL`: API server URL (defaults to `http://localhost:55000/api/v1`)
+- `VITE_WS_URL`: WebSocket URL (defaults to `ws://localhost:55000/ws`)
 
 Set in `docker-compose.yml` under `manager.environment`:
 
 ```yaml
-- CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","http://YOUR_IP:3000"]
-- ALLOWED_HOSTS=localhost,127.0.0.1,YOUR_IP
+- CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+- ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
 ```
+
+**Note:** All values now use environment variables with sensible defaults. No hardcoded IPs required!
 
 ### Agent Configuration
 

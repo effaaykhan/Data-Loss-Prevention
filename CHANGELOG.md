@@ -10,14 +10,87 @@ This document details all changes, fixes, and improvements made during testing a
 
 ## Summary
 
-- **Total Files Modified:** 29 files
-- **Lines Changed:** +2,300 insertions, -550 deletions
-- **New Files:** 1 (Login page component)
-- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration
+- **Total Files Modified:** 30 files
+- **Lines Changed:** +2,350 insertions, -600 deletions
+- **New Files:** 2 (.env.example, Login page component)
+- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration, Configuration system (removed hardcoded paths/IPs), Windows Agent USB monitoring threading fix
 
 ---
 
 ## 🎯 Major Fixes
+
+### 11. Configuration System - Removed Hardcoded Paths and IPs
+
+#### Problem
+- Hardcoded IP addresses (`172.23.19.78`) in `docker-compose.yml`
+- Hardcoded server URLs in agent config files
+- System-specific paths in installation guide
+- No environment variable support for configuration
+- Not portable across different systems
+
+#### Solution
+- **`.env.example`**: Created comprehensive environment variable template
+  - Network configuration (`SERVER_IP`, `CORS_ORIGINS`, `VITE_API_URL`, `VITE_WS_URL`)
+  - Database passwords and security keys
+  - All configurable settings with sensible defaults
+
+- **`docker-compose.yml`**: Updated to use environment variables
+  - `CORS_ORIGINS` uses `${CORS_ORIGINS}` with localhost defaults
+  - `VITE_API_URL` and `VITE_WS_URL` use environment variables with defaults
+  - All values configurable via `.env` file
+
+- **`agents/endpoint/linux/agent.py`**: Added environment variable support
+  - Checks `CYBERSENTINEL_SERVER_URL` environment variable first
+  - Falls back to config file, then defaults to `http://localhost:55000/api/v1`
+  - Environment variable takes precedence over config file
+
+- **`agents/endpoint/windows/agent.py`**: Added environment variable support
+  - Checks `CYBERSENTINEL_SERVER_URL` environment variable first
+  - Falls back to config file, then defaults to `http://localhost:55000/api/v1`
+  - Environment variable expansion for `%USERNAME%` in monitored paths (via `os.path.expandvars()`)
+  - Environment variable takes precedence over config file
+
+- **`agents/endpoint/linux/agent_config.json`**: Updated default server URL
+  - Changed from hardcoded IP to `http://localhost:55000/api/v1`
+
+- **`agents/endpoint/windows/agent_config.json`**: Updated default server URL
+  - Changed from hardcoded IP to `http://localhost:55000/api/v1`
+  - Supports `%USERNAME%` in monitored paths (expanded at runtime)
+
+- **`dashboard/Dockerfile`**: Fixed package manager issue
+  - Changed `apk` (Alpine) to `apt-get` (Debian-based image)
+  - Fixed curl installation order (before switching to non-root user)
+
+- **`dashboard/src/lib/api.ts`**: Fixed duplicate exports
+  - Removed duplicate function exports causing build errors
+  - Cleaned up API client structure
+
+- **`INSTALLATION_GUIDE.md`**: Updated with configurable paths
+  - Removed hardcoded system-specific paths
+  - Added instructions for `.env` file configuration
+  - Updated agent configuration examples with environment variables
+
+#### Files Changed
+- `.env.example` (new file)
+- `docker-compose.yml`
+- `agents/endpoint/linux/agent.py`
+- `agents/endpoint/linux/agent_config.json`
+- `agents/endpoint/windows/agent.py`
+- `agents/endpoint/windows/agent_config.json`
+- `dashboard/Dockerfile`
+- `dashboard/src/lib/api.ts`
+- `INSTALLATION_GUIDE.md`
+
+#### Testing Results
+- ✅ Dashboard builds and runs with environment variables
+- ✅ Linux agent connects using `localhost` default
+- ✅ Windows agent connects using `localhost` default
+- ✅ Environment variables override config file values
+- ✅ Windows agent expands `%USERNAME%` in monitored paths correctly
+- ✅ All hardcoded IPs removed
+- ✅ System works out-of-the-box with sensible defaults
+
+---
 
 ### 1. Dashboard Build and Runtime Issues
 
@@ -347,6 +420,32 @@ This document details all changes, fixes, and improvements made during testing a
 
 ---
 
+### 12. Windows Agent USB Monitoring Threading Fix
+
+#### Problem
+- Windows agent throwing `wmi.x_wmi_uninitialised_thread` error
+- USB monitoring failing with COM initialization error
+- Error message: "WMI returned a syntax error: you're probably running inside a thread without first calling pythoncom.CoInitialize[Ex]"
+
+#### Solution
+- **`agents/endpoint/windows/agent.py`**: Fixed COM initialization in USB monitoring thread
+  - Changed from `pythoncom.CoInitialize()` to `pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)` for better thread safety
+  - Added fallback to `CoInitialize()` if `CoInitializeEx` is not available
+  - Improved error handling with `exc_info=True` for better debugging
+  - Added try/except around `CoUninitialize()` to prevent cleanup errors
+  - USB monitoring now properly initializes COM in the separate thread
+
+#### Files Changed
+- `agents/endpoint/windows/agent.py`
+
+#### Testing Results
+- ✅ USB monitoring starts without errors
+- ✅ No more `x_wmi_uninitialised_thread` exceptions
+- ✅ USB device detection working correctly
+- ✅ Windows agent runs cleanly without threading errors
+
+---
+
 ### 11. Agents Page Display Fix
 
 #### Problem
@@ -423,10 +522,11 @@ This document details all changes, fixes, and improvements made during testing a
 - ✅ Heartbeat endpoint fixed (POST → PUT)
 - ✅ File monitoring functional with environment variable expansion
 - ✅ Clipboard monitoring working (Windows-specific feature)
-- ✅ USB device monitoring working (Windows-specific feature)
+- ✅ USB device monitoring working (Windows-specific feature) - Fixed threading error
 - ✅ Events being sent to server
 - ✅ Sensitive data classification working
 - ✅ Environment variable expansion in monitored paths (%USERNAME%)
+- ✅ USB monitoring COM initialization fixed (CoInitializeEx with COINIT_MULTITHREADED)
 
 ### Server API
 - ✅ Events API returning correct format
@@ -503,7 +603,7 @@ This document details all changes, fixes, and improvements made during testing a
 ### Agents
 1. `agents/endpoint/linux/agent.py` - Connectivity and permissions
 2. `agents/endpoint/linux/agent_config.json` - Server URL
-3. `agents/endpoint/windows/agent.py` - Heartbeat endpoint, path expansion, logging
+3. `agents/endpoint/windows/agent.py` - Heartbeat endpoint, path expansion, logging, USB monitoring COM initialization fix
 4. `agents/endpoint/windows/agent_config.json` - WSL compatibility
 
 ### Infrastructure
