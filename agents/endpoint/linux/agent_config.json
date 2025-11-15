@@ -1,6 +1,6 @@
 {
   "server_url": "http://localhost:55000/api/v1",
-  "agent_id": "b3a6631d-4ccd-4e60-b238-8766bc9b00a1",
+  "agent_id": "bd0864fe-1420-44b8-9bb3-ecb1fedd6f91",
   "agent_name": "UrAvgProGamer-PC",
   "heartbeat_interval": 60,
   "monitoring": {
