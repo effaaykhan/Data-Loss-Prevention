@@ -96,7 +96,7 @@ class Settings(BaseSettings):
             password=self.REDIS_PASSWORD,
             host=self.REDIS_HOST,
             port=self.REDIS_PORT,
-            path=f"/{self.REDIS_DB}",
+            path=str(self.REDIS_DB),
         ))
 
     # OpenSearch Configuration

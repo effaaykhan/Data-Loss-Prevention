@@ -73,13 +73,10 @@ services:
       - "9600:9600"
     environment:
       - discovery.type=single-node
-      - bootstrap.memory_lock=true
+      - bootstrap.memory_lock=false
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
       - DISABLE_SECURITY_PLUGIN=true
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -89,7 +86,8 @@ services:
       test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 90s
     restart: unless-stopped
 
   # DLP Manager (FastAPI Backend) - Port 55000 (Wazuh-style)
@@ -140,8 +138,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # OpenSearch temporarily optional - manager will start even if OpenSearch is unhealthy
       opensearch:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:55000/health"]
       interval: 30s
@@ -165,7 +164,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - manager
+      manager:
+        condition: service_started
     restart: unless-stopped
 
 networks:

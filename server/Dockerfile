@@ -67,5 +67,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 ENV UVICORN_WORKERS=${UVICORN_WORKERS:-4}
 ENV PORT=55000
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
 # Run application
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-55000} --workers ${UVICORN_WORKERS}

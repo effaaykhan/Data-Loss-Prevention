@@ -63,7 +63,17 @@
       "Bash(timeout /t 5)",
       "Bash(nssm start:*)",
       "Bash(timeout /t 10)",
-      "Bash(PROJECT_COMPLETE.md)"
+      "Bash(PROJECT_COMPLETE.md)",
+      "Bash(git merge:*)",
+      "Bash(while read file)",
+      "Bash(do python -m py_compile \"$file\")",
+      "Bash(git remote set-url:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(npm run build:*)",
+      "Bash(test:*)",
+      "Bash(git restore:*)",
+      "Bash(docker logs:*)"
     ],
     "deny": [],
     "ask": []

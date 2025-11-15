@@ -1,8 +1,8 @@
 # Multi-stage build for production-ready Vite dashboard
 
-FROM node:18-slim AS deps
+# Stage 1: Build the application
+FROM node:18-slim AS builder
 
-# Install dependencies only when needed
 WORKDIR /app
 
 # Copy package files
@@ -11,14 +11,7 @@ COPY package.json package-lock.json* ./
 # Install dependencies
 RUN npm install
 
-# Rebuild the source code only when needed
-FROM node:18-slim AS builder
-WORKDIR /app
-
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
-
-# Copy all application files (respects .dockerignore)
+# Copy application source
 COPY . .
 
 # Accept build arguments for Vite environment variables
@@ -61,8 +54,8 @@ USER nodejs
 # Expose port
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+# Install curl for healthcheck
+RUN apk add --no-cache curl
 
 # Run vite preview server
 CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "3000"]

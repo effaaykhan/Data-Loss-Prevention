@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useAuthStore } from './lib/store/auth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -9,6 +10,8 @@ import Policies from './pages/Policies'
 import Settings from './pages/Settings'
 
 function App() {
+  const { isAuthenticated } = useAuthStore()
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -21,6 +24,14 @@ function App() {
         <Route path="policies" element={<Policies />} />
         <Route path="settings" element={<Settings />} />
       </Route>
+
+      {/* Catch all - redirect to dashboard if authenticated, login otherwise */}
+      <Route
+        path="*"
+        element={
+          <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />
+        }
+      />
     </Routes>
   )
 }
