@@ -463,7 +463,7 @@ class ValidatedUserRegistration(BaseModel):
     email: str
     password: str = Field(..., min_length=8, max_length=128)
     full_name: Optional[str] = Field(None, max_length=200)
-    role: Optional[str] = Field(default="viewer")
+    role: Optional[str] = Field(default="VIEWER")
 
     @validator('email')
     def validate_email(cls, v):
@@ -497,7 +497,7 @@ class ValidatedUserRegistration(BaseModel):
 
     @validator('role')
     def validate_role(cls, v):
-        valid_roles = ['admin', 'analyst', 'viewer']
+        valid_roles = ['ADMIN', 'ANALYST', 'VIEWER']
         if v not in valid_roles:
             raise ValueError(f"Invalid role (must be: {', '.join(valid_roles)})")
         return v

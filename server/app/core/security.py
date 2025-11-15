@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.cache import redis_client
+from app.core.cache import get_cache
 from app.services.blacklist_service import TokenBlacklistService
 from app.models.user import User
 # UserService imported lazily to avoid circular imports
@@ -129,12 +129,17 @@ async def get_current_user(
     # Lazy import to avoid circular dependency
     from app.services.user_service import UserService
 
-    blacklist_service = TokenBlacklistService(redis_client)
-    if await blacklist_service.is_blacklisted(token):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has been revoked",
-        )
+    try:
+        cache = get_cache()
+        blacklist_service = TokenBlacklistService(cache)
+        if await blacklist_service.is_blacklisted(token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has been revoked",
+            )
+    except RuntimeError:
+        # Redis not initialized, skip blacklist check (development mode)
+        logger.warning("Redis not initialized, skipping token blacklist check")
 
     payload = decode_token(token)
 
@@ -174,9 +179,14 @@ async def optional_auth(
 
     try:
         # Check blacklist
-        blacklist_service = TokenBlacklistService(redis_client)
-        if await blacklist_service.is_blacklisted(token):
-            return None
+        try:
+            cache = get_cache()
+            blacklist_service = TokenBlacklistService(cache)
+            if await blacklist_service.is_blacklisted(token):
+                return None
+        except RuntimeError:
+            # Redis not initialized, skip blacklist check
+            pass
 
         # Decode token
         payload = decode_token(token)
@@ -213,7 +223,7 @@ def require_role(required_role: str):
         user_role = current_user.role
 
         # Role hierarchy: admin > analyst > viewer
-        role_hierarchy = {"admin": 3, "analyst": 2, "viewer": 1}
+        role_hierarchy = {"ADMIN": 3, "ANALYST": 2, "VIEWER": 1}
 
         user_level = role_hierarchy.get(user_role, 0)
         required_level = role_hierarchy.get(required_role, 0)

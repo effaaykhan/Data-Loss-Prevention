@@ -87,7 +87,7 @@ class UserService:
         email: str,
         password: str,
         full_name: str,
-        role: str = "viewer",
+        role: str = "VIEWER",
         organization: Optional[str] = None,
     ) -> User:
         """

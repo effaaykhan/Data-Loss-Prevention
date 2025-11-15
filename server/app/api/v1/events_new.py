@@ -507,7 +507,7 @@ async def delete_event(
     In production, you might want to soft-delete or archive instead.
     """
     # Check if user is admin
-    if current_user.get("role") != "admin":
+    if current_user.get("role") != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can delete events"

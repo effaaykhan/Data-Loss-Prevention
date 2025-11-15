@@ -23,7 +23,7 @@ from app.core.security import (
 )
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.cache import redis_client
+from app.core.cache import get_cache
 from app.services.user_service import UserService
 from app.services.blacklist_service import TokenBlacklistService
 from app.models.user import User
@@ -75,7 +75,7 @@ async def register(
             password=user_data.password,
             full_name=user_data.full_name,
             organization=user_data.organization,
-            role="viewer",  # Default role for new users
+            role="VIEWER",  # Default role for new users
         )
 
         logger.info("User registered", email=user.email, user_id=str(user.id))
@@ -217,7 +217,8 @@ async def logout(
     User logout
     """
     token = request.headers["authorization"].split(" ")[1]
-    blacklist_service = TokenBlacklistService(redis_client)
+    cache = get_cache()
+    blacklist_service = TokenBlacklistService(cache)
     payload = decode_token(token)
     expires_in = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     await blacklist_service.add_to_blacklist(token, expires_in)

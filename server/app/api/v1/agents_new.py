@@ -558,7 +558,7 @@ async def update_agent_status(
     - suspended: Agent is suspended by admin
     """
     # Check admin permission
-    if current_user.get("role") != "admin":
+    if current_user.get("role") != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can update agent status"
@@ -697,7 +697,7 @@ async def delete_agent(
     Permanently removes an agent from the system.
     """
     # Check admin permission
-    if current_user.get("role") != "admin":
+    if current_user.get("role") != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators can delete agents"

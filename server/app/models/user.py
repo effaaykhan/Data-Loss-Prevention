@@ -12,9 +12,9 @@ from app.core.database import Base
 
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
-    ANALYST = "analyst"
-    VIEWER = "viewer"
+    ADMIN = "ADMIN"
+    ANALYST = "ANALYST"
+    VIEWER = "VIEWER"
 
 
 class User(Base):
