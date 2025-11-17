@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Monitor, Circle, Download, Plus, X, Copy, Check, Activity, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { api } from '@/lib/api'
+import { getAgents, getAgentsStats } from '@/lib/api'
 import { formatDateTimeIST } from '@/lib/utils'
 
 export default function AgentsPage() {
@@ -19,16 +19,16 @@ export default function AgentsPage() {
   const [copied, setCopied] = useState(false)
 
   // Fetch agents from API
-  const { data: agents = [], isLoading } = useQuery({
+  const { data: agents = [], isLoading, refetch } = useQuery({
     queryKey: ['agents'],
-    queryFn: api.getAgents,
+    queryFn: () => getAgents(),
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 
   // Fetch agent stats
-  const { data: agentStats } = useQuery({
+  const { data: agentStats, refetch: refetchStats } = useQuery({
     queryKey: ['agent-stats'],
-    queryFn: api.getAgentsSummary,
+    queryFn: () => getAgentsStats(),
     refetchInterval: 30000,
   })
 
@@ -140,18 +140,30 @@ echo "Agent will start automatically and connect to $SERVER_IP"`
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold text-white">Endpoint Agents</h1>
             <p className="text-gray-400 mt-2">Manage and monitor DLP agents deployed across your organization</p>
           </div>
-          <button
-            onClick={() => setShowDeployModal(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
-          >
-            <Plus className="w-5 h-5" />
-            Deploy Agent
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                refetch()
+                refetchStats()
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:border-indigo-500 hover:text-white transition-colors"
+            >
+              <Activity className="w-4 h-4" />
+              Refresh
+            </button>
+            <button
+              onClick={() => setShowDeployModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              Deploy Agent
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}

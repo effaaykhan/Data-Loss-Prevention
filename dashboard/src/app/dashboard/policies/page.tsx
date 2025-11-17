@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { getPolicies, getPolicyStats, createPolicy, updatePolicy, deletePolicy } from '@/lib/api'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { FileText, Shield, CheckCircle, Clock, Plus, Edit, Trash2, Copy, X, AlertTriangle, Ban, Bell, Archive, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -37,16 +37,16 @@ export default function PoliciesPage() {
   const queryClient = useQueryClient()
 
   // Fetch policies from API
-  const { data: policies = [], isLoading } = useQuery({
+  const { data: policies = [], isLoading, refetch } = useQuery({
     queryKey: ['policies'],
-    queryFn: () => api.getPolicies(),
+    queryFn: () => getPolicies(),
     refetchInterval: 30000,
   })
 
   // Fetch policy stats
-  const { data: policyStats } = useQuery({
+  const { data: policyStats, refetch: refetchStats } = useQuery({
     queryKey: ['policy-stats'],
-    queryFn: () => api.getPolicyStats(),
+    queryFn: () => getPolicyStats(),
     refetchInterval: 30000,
   })
 
@@ -111,11 +111,11 @@ export default function PoliciesPage() {
     try {
       if (editingPolicy) {
         // Update existing policy via API
-        await api.updatePolicy(editingPolicy.policy_id || String(editingPolicy.id), policyForm)
+        await updatePolicy(editingPolicy.policy_id || String(editingPolicy.id), policyForm)
         toast.success('Policy updated successfully!')
       } else {
         // Create new policy via API
-        await api.createPolicy(policyForm)
+        await createPolicy(policyForm)
         toast.success('Policy created successfully!')
       }
 
@@ -134,7 +134,7 @@ export default function PoliciesPage() {
   const handleDeletePolicy = async (policy: any) => {
     if (confirm('Are you sure you want to delete this policy?')) {
       try {
-        await api.deletePolicy(policy.policy_id || String(policy.id))
+        await deletePolicy(policy.policy_id || String(policy.id))
         toast.success('Policy deleted successfully!')
         queryClient.invalidateQueries({ queryKey: ['policies'] })
         queryClient.invalidateQueries({ queryKey: ['policy-stats'] })
@@ -240,18 +240,30 @@ export default function PoliciesPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold text-white">DLP Policies</h1>
             <p className="text-gray-400 mt-2">Create and manage custom data loss prevention policies</p>
           </div>
-          <button
-            onClick={handleCreatePolicy}
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
-          >
-            <Plus className="w-5 h-5" />
-            Create Policy
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                refetch()
+                refetchStats()
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:border-indigo-500 hover:text-white transition-colors"
+            >
+              <Clock className="w-4 h-4" />
+              Refresh
+            </button>
+            <button
+              onClick={handleCreatePolicy}
+              className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              Create Policy
+            </button>
+          </div>
         </div>
 
         {/* Stats */}

@@ -226,6 +226,13 @@ export const getPolicyStats = async () => {
   return data
 }
 
+// Events helper used by dashboard pages
+export const getEvents = async (params?: any) => {
+  const { data } = await apiClient.get('/events', { params })
+  // The backend returns a paginated envelope; the dashboard expects a flat list.
+  return data.events || []
+}
+
 // Users functions
 export const getCurrentUser = async () => {
   const { data } = await apiClient.get('/users/me')

@@ -20,6 +20,12 @@ router = APIRouter()
 
 
 class PolicyCondition(BaseModel):
+    """
+    Generic condition used by the server-side policy engine.
+    Agents typically consume a higher-level view (file types, size, keywords)
+    derived from these conditions.
+    """
+
     field: str
     operator: str
     value: Any
@@ -31,6 +37,13 @@ class PolicyAction(BaseModel):
 
 
 class Policy(BaseModel):
+    """
+    API schema for policies.
+
+    This wraps the internal SQLAlchemy model and exposes a clean JSON structure
+    that can also be mirrored to MongoDB or consumed directly by agents.
+    """
+
     id: Optional[str] = None
     name: str
     description: str
@@ -69,8 +82,18 @@ async def get_policies(
             "description": policy.description,
             "enabled": policy.enabled,
             "priority": policy.priority,
-            "conditions": policy.conditions.get("rules", []) if isinstance(policy.conditions, dict) else [],
-            "actions": [{"type": k, "parameters": v} for k, v in policy.actions.items()] if isinstance(policy.actions, dict) else [],
+            # Internally we store a JSON blob with "match" + "rules".
+            # Expose only the rules list to the API.
+            "conditions": policy.conditions.get("rules", [])
+            if isinstance(policy.conditions, dict)
+            else [],
+            # Actions JSON is a mapping: {"alert": {...}, "block": {...}}
+            # Convert to a list for the API.
+            "actions": [
+                {"type": k, "parameters": v} for k, v in policy.actions.items()
+            ]
+            if isinstance(policy.actions, dict)
+            else [],
             "compliance_tags": policy.compliance_tags or [],
             "created_at": policy.created_at,
             "updated_at": policy.updated_at,
@@ -78,6 +101,44 @@ async def get_policies(
         }
         for policy in policies
     ]
+
+
+@router.get("/{policy_id}", response_model=Policy)
+async def get_policy(
+    policy_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a single DLP policy by ID.
+    Useful for editing from the dashboard and for agents that want
+    to cache individual policies.
+    """
+    policy_service = PolicyService(db)
+    policy = await policy_service.get_policy_by_id(policy_id)
+
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    return {
+        "id": str(policy.id),
+        "name": policy.name,
+        "description": policy.description,
+        "enabled": policy.enabled,
+        "priority": policy.priority,
+        "conditions": policy.conditions.get("rules", [])
+        if isinstance(policy.conditions, dict)
+        else [],
+        "actions": [
+            {"type": k, "parameters": v} for k, v in policy.actions.items()
+        ]
+        if isinstance(policy.actions, dict)
+        else [],
+        "compliance_tags": policy.compliance_tags or [],
+        "created_at": policy.created_at,
+        "updated_at": policy.updated_at,
+        "created_by": policy.created_by,
+    }
 
 
 @router.post("/", response_model=Policy, status_code=status.HTTP_201_CREATED)

@@ -107,34 +107,55 @@ async def get_events(
     limit: int = Query(100, ge=1, le=1000),
     severity: Optional[str] = None,
     source: Optional[str] = None,
-    current_user = Depends(get_current_user),
+    start_time: Optional[datetime] = Query(
+        None,
+        description="Filter events with timestamp >= this ISO datetime (UTC)",
+    ),
+    end_time: Optional[datetime] = Query(
+        None,
+        description="Filter events with timestamp <= this ISO datetime (UTC)",
+    ),
+    current_user=Depends(get_current_user),
 ):
     """
-    Get DLP events with pagination and filtering
+    Get DLP events with pagination and filtering.
+
+    Supports:
+    - severity filter
+    - source filter
+    - time range via start_time / end_time
     """
     db = get_mongodb()
 
     # Build query filter
-    query_filter = {}
+    query_filter: Dict[str, Any] = {}
     if severity:
         query_filter["severity"] = severity
     if source:
         query_filter["source"] = source
+    if start_time or end_time:
+        time_filter: Dict[str, Any] = {}
+        if start_time:
+            time_filter["$gte"] = start_time
+        if end_time:
+            time_filter["$lte"] = end_time
+        query_filter["timestamp"] = time_filter
 
     # Query MongoDB
-    cursor = db.dlp_events.find(query_filter).sort("timestamp", -1).skip(skip).limit(limit)
+    cursor = (
+        db.dlp_events.find(query_filter)
+        .sort("timestamp", -1)
+        .skip(skip)
+        .limit(limit)
+    )
     events_raw = await cursor.to_list(length=limit)
-    
+
     # Convert MongoDB documents to match DLPEvent model
     events = []
     for event_doc in events_raw:
         # Remove MongoDB _id field and ensure all required fields exist
         event_dict = {k: v for k, v in event_doc.items() if k != "_id"}
-        
-        # Convert datetime objects to ISO format strings with Z suffix (UTC)
-        if "timestamp" in event_dict and isinstance(event_dict["timestamp"], datetime):
-            event_dict["timestamp"] = event_dict["timestamp"].isoformat() + "Z"
-        
+
         # Ensure required fields have defaults if missing
         if "agent_id" not in event_dict:
             event_dict["agent_id"] = event_dict.get("agent_id") or "unknown"
@@ -148,15 +169,15 @@ async def get_events(
             event_dict["file_path"] = None
         if "destination" not in event_dict:
             event_dict["destination"] = None
-        
+
         events.append(event_dict)
-    
+
     # Get total count for pagination
     total = await db.dlp_events.count_documents(query_filter)
 
     logger.info(
         "Events queried",
-        user=current_user.email,
+        user=getattr(current_user, "email", None),
         count=len(events),
         total=total,
         filters=query_filter,
@@ -166,7 +187,7 @@ async def get_events(
         "events": events,
         "total": total,
         "skip": skip,
-        "limit": limit
+        "limit": limit,
     }
 
 

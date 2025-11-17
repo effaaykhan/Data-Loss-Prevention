@@ -57,6 +57,9 @@ class BaseAgent(ABC):
         # Manager connection
         self.manager_url = self.config.get("agent", {}).get("manager_url", "https://localhost:55000")
 
+        # Cached policies fetched from manager
+        self.policies: List[Dict[str, Any]] = []
+
         # Event queue
         self.event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
@@ -537,13 +540,17 @@ class BaseAgent(ABC):
         # Set running flag
         self.running = True
 
+        # Fetch active policies from manager for local use
+        await self.refresh_policies()
+
         # Initialize monitors
         await self.initialize_monitors()
 
         # Start background tasks
         tasks = [
             asyncio.create_task(self.heartbeat_loop()),
-            asyncio.create_task(self.event_processor_loop())
+            asyncio.create_task(self.event_processor_loop()),
+            asyncio.create_task(self.policy_refresh_loop()),
         ]
 
         # Start monitors
@@ -576,3 +583,54 @@ class BaseAgent(ABC):
         await self.cleanup_monitors()
 
         logger.info("Agent stopped")
+
+    async def refresh_policies(self):
+        """
+        Fetch active policies from the manager and cache them locally.
+
+        Agents use these policies to adjust local monitoring behaviour
+        (e.g., which file types to watch, keywords of interest, etc.).
+        """
+        if not self.access_token:
+            logger.warning("Cannot refresh policies without access token")
+            return
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {self.access_token}"}
+                async with session.get(
+                    f"{self.manager_url}/api/v1/policies",
+                    params={"enabled_only": "true"},
+                    headers=headers,
+                    ssl=False,
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        # Policies API returns a list of policy objects
+                        self.policies = data
+                        logger.info(
+                            "Policies refreshed",
+                            count=len(self.policies),
+                        )
+                    else:
+                        text = await response.text()
+                        logger.warning(
+                            "Failed to refresh policies",
+                            status=response.status,
+                            error=text,
+                        )
+        except Exception as e:
+            logger.error("Policy refresh exception", error=str(e))
+
+    async def policy_refresh_loop(self):
+        """
+        Periodically refresh policies from the manager.
+        """
+        # Default to 5 minutes if not specified
+        interval = (
+            self.config.get("agent", {}).get("policy_refresh_interval", 300)
+        )
+
+        while self.running:
+            await self.refresh_policies()
+            await asyncio.sleep(interval)

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X } from 'lucide-react'
-import { api } from '@/lib/api'
+import { getEvents as fetchEvents, getEventStats } from '@/lib/api'
 import { formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -12,18 +12,24 @@ export default function EventsPage() {
   const [selectedType, setSelectedType] = useState('all')
   const [selectedEvent, setSelectedEvent] = useState<any>(null)
   const [kqlQuery, setKqlQuery] = useState('')
+  const [startTime, setStartTime] = useState<string>('')
+  const [endTime, setEndTime] = useState<string>('')
 
   // Fetch events from API
   const { data: events = [], isLoading, refetch } = useQuery({
-    queryKey: ['events'],
-    queryFn: () => api.getEvents(),
+    queryKey: ['events', { startTime, endTime }],
+    queryFn: () =>
+      fetchEvents({
+        start_time: startTime || undefined,
+        end_time: endTime || undefined,
+      }),
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 
   // Fetch event stats
-  const { data: eventStats } = useQuery({
+  const { data: eventStats, refetch: refetchStats } = useQuery({
     queryKey: ['event-stats'],
-    queryFn: () => api.getEventStats(),
+    queryFn: () => getEventStats(),
     refetchInterval: 30000,
   })
 
@@ -143,19 +149,31 @@ export default function EventsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-3xl font-bold text-white">DLP Events</h1>
             <p className="text-gray-400 mt-2">Monitor and analyze data loss prevention events in real-time</p>
           </div>
-          <button
-            onClick={exportEvents}
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
-            disabled={filteredEvents.length === 0}
-          >
-            <Download className="w-5 h-5" />
-            Export Events
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                refetch()
+                refetchStats()
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:border-indigo-500 hover:text-white transition-colors"
+            >
+              <Loader2 className="w-4 h-4 animate-spin-slow" />
+              Refresh
+            </button>
+            <button
+              onClick={exportEvents}
+              className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
+              disabled={filteredEvents.length === 0}
+            >
+              <Download className="w-5 h-5" />
+              Export Events
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -191,8 +209,30 @@ export default function EventsPage() {
           </div>
         </div>
 
-        {/* KQL Search Bar */}
-        <div className="bg-gray-800/50 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50">
+        {/* Time Range + KQL Search Bar */}
+        <div className="bg-gray-800/50 backdrop-blur-xl rounded-xl p-6 border border-gray-700/50 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-200 mb-2">
+                Time Range (UTC)
+              </label>
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-gray-900/50 border-2 border-gray-600 rounded-xl text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 transition-all text-sm"
+                />
+                <input
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-gray-900/50 border-2 border-gray-600 rounded-xl text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 transition-all text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
           <label className="block text-sm font-medium text-gray-200 mb-3">
             <Search className="w-4 h-4 inline-block mr-2" />
             Search Events (KQL - Kibana Query Language)
