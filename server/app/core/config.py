@@ -163,16 +163,28 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, v):
         """Parse CORS origins from comma-separated string"""
+        # Handle empty string or None - return default
+        if not v or (isinstance(v, str) and not v.strip()):
+            return None  # Will use default from Field
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+            # Handle comma-separated string
+            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+            return origins if origins else None
+        # If already a list, return as-is
         return v
 
     @field_validator("ALLOWED_HOSTS", mode="before")
     @classmethod
     def parse_allowed_hosts(cls, v):
         """Parse allowed hosts from comma-separated string"""
+        # Handle empty string or None - return default
+        if not v or (isinstance(v, str) and not v.strip()):
+            return None  # Will use default from Field
         if isinstance(v, str):
-            return [host.strip() for host in v.split(",")]
+            # Handle comma-separated string
+            hosts = [host.strip() for host in v.split(",") if host.strip()]
+            return hosts if hosts else None
+        # If already a list, return as-is
         return v
 
     model_config = SettingsConfigDict(
