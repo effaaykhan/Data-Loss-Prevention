@@ -26,6 +26,12 @@ class EventCreate(BaseModel):
     source_type: str = Field(default="endpoint", description="Source type")
     file_path: Optional[str] = Field(None, description="File path if applicable")
     classification: Optional[Dict[str, Any]] = Field(None, description="Classification data")
+    action: Optional[str] = Field(None, description="Action taken (logged, blocked, alerted, etc.)")
+    destination: Optional[str] = Field(None, description="Destination path for transfers")
+    blocked: Optional[bool] = Field(None, description="Whether action was blocked")
+    event_subtype: Optional[str] = Field(None, description="Event subtype")
+    description: Optional[str] = Field(None, description="Event description")
+    user_email: Optional[str] = Field(None, description="User email")
 
 
 class DLPEvent(BaseModel):
@@ -80,15 +86,21 @@ async def create_event(
         "agent_id": event.agent_id,
         "source": event.source_type,
         "source_type": event.source_type,
-        "user_email": "agent@system",  # Default for agent-generated events
+        "user_email": event.user_email or "agent@system",  # Use agent-provided email or default
         "classification_score": 0.0,
         "classification_labels": [],
         "policy_id": None,
-        "action_taken": "logged",
+        "action_taken": event.action or "logged",  # Use agent-provided action or default to "logged"
         "file_path": event.file_path,
-        "destination": None,
-        "blocked": False,
+        "destination": event.destination,  # Use agent-provided destination
+        "blocked": event.blocked if event.blocked is not None else False,  # Use agent-provided blocked status
     }
+    
+    # Add optional fields if provided
+    if event.event_subtype:
+        event_doc["event_subtype"] = event.event_subtype
+    if event.description:
+        event_doc["description"] = event.description
 
     # Add classification data if provided
     if event.classification:
@@ -97,7 +109,15 @@ async def create_event(
     # Insert into database
     await events_collection.insert_one(event_doc)
 
-    logger.info("Event created", event_id=event.event_id, agent_id=event.agent_id, event_type=event.event_type)
+    logger.info(
+        "Event created",
+        event_id=event.event_id,
+        agent_id=event.agent_id,
+        event_type=event.event_type,
+        action_taken=event_doc.get("action_taken"),
+        action_received=event.action,
+        blocked=event_doc.get("blocked")
+    )
     return {"status": "success", "event_id": event.event_id}
 
 

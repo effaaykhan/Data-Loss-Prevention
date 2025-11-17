@@ -10,14 +10,75 @@ This document details all changes, fixes, and improvements made during testing a
 
 ## Summary
 
-- **Total Files Modified:** 46 files
-- **Lines Changed:** +2,801 insertions, -735 deletions
+- **Total Files Modified:** 53 files
+- **Lines Changed:** +3,869 insertions, -826 deletions
 - **New Files:** 2 (.env.example, Login page component)
-- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration, Configuration system (removed hardcoded paths/IPs), Windows Agent USB monitoring threading fix, Agent lifecycle management, Timezone display (IST), Heartbeat system improvements
+- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration, Configuration system (removed hardcoded paths/IPs), Windows Agent USB monitoring threading fix, Agent lifecycle management, Timezone display (IST), Heartbeat system improvements, File transfer blocking (Windows), Event display improvements
 
 ---
 
 ## 🎯 Latest Updates (November 17, 2025)
+
+### 14. File Transfer Blocking Feature (Windows)
+
+#### Problem
+- No protection against copying sensitive files to removable drives (USB, external SSDs)
+- Files could be copied to external storage without detection or blocking
+- No visual feedback in dashboard for blocked transfers
+- Event details showing raw JSON instead of user-friendly information
+
+#### Solution
+- **Windows Agent Transfer Blocking:**
+  - Added removable drive monitoring with `watchdog` library
+  - Detects files copied to removable drives (USB, external SSDs)
+  - Compares file hash (SHA256) with files in monitored directories
+  - Automatically deletes copied files from removable drives when match found
+  - Sends blocked transfer events with `action: "blocked"` status
+  - Handles file locking issues with retry mechanism (Windows Explorer locks files during copy)
+  - Configurable via `transfer_blocking.enabled` in agent config
+
+- **Backend Event Processing:**
+  - Updated `EventCreate` model to accept `action`, `destination`, `blocked`, `event_subtype`, `description`, `user_email` fields
+  - Backend now properly stores agent-provided `action` field (mapped to `action_taken`)
+  - Fixed hardcoded `action_taken: "logged"` to use agent-provided action
+  - Added debug logging for action field tracking
+
+- **Dashboard Event Display:**
+  - Created user-friendly `EventDetailModal` component for blocked transfers
+  - Visual flow display: Source → Destination with file details
+  - Shows file size, hash, transfer type, and action taken
+  - Expandable raw JSON section for technical details
+  - Improved standard event display with better formatting
+  - Fixed `action_taken` field display (now shows "blocked" for blocked transfers, "logged" for others)
+
+#### Configuration
+```json
+{
+  "monitoring": {
+    "transfer_blocking": {
+      "enabled": true,
+      "block_removable_drives": true,
+      "poll_interval_seconds": 5
+    }
+  }
+}
+```
+
+#### Files Changed
+- `agents/endpoint/windows/agent.py` - Added transfer blocking logic, removable drive monitoring, file hash comparison
+- `agents/endpoint/windows/agent_config.json` - Added transfer_blocking configuration section
+- `server/app/api/v1/events.py` - Updated EventCreate model and event processing
+- `dashboard/src/pages/Events.tsx` - Added EventDetailModal component and improved event display
+- `dashboard/src/app/dashboard/events/page.tsx` - Added EventDetailModal component (app router version)
+
+#### Testing Results
+- ✅ Transfer blocking detects files copied to USB drives
+- ✅ Files successfully deleted from removable drives when match found
+- ✅ Blocked transfer events show `action_taken: "blocked"` in dashboard
+- ✅ User-friendly event modal displays transfer details correctly
+- ✅ File locking issues handled with retry mechanism
+- ✅ Works with multiple monitored directories
+- ✅ Handles path normalization (E:file.txt → E:\file.txt)
 
 ### 12. Agent Lifecycle Management and Heartbeat Improvements
 

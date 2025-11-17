@@ -103,6 +103,11 @@ docker-compose up -d postgres mongodb redis opensearch
 # Wait for services to be healthy (about 30 seconds)
 docker-compose ps
 
+# Wait until all show "healthy" or "Up"
+# You can also check logs:
+docker-compose logs postgres | tail -10
+docker-compose logs mongodb | tail -10
+
 # Initialize database
 docker-compose run --rm manager python init_db.py
 ```
@@ -599,6 +604,14 @@ Get-Service -Name "CyberSentinelDLP"
 - Ensure using latest agent code (includes `os.path.expandvars()`)
 - Check paths use Windows format: `C:\Users\%USERNAME%\Documents`
 
+**Issue: File transfer blocking not working**
+- Ensure `transfer_blocking.enabled` is set to `true` in agent config
+- Verify monitored paths are correctly configured
+- Check that files exist in monitored directories before copying to USB
+- Agent requires Administrator privileges for file deletion
+- Check agent logs for "Permission denied" errors (Windows Explorer may lock files temporarily)
+- The agent automatically retries file operations if locked (up to 5 attempts)
+
 ---
 
 ## Configuration
@@ -646,6 +659,7 @@ Set in `docker-compose.yml` under `manager.environment`:
 
 #### Configuration Options
 
+**Basic Configuration:**
 ```json
 {
   "server_url": "http://YOUR_SERVER_IP:55000/api/v1",
@@ -657,6 +671,60 @@ Set in `docker-compose.yml` under `manager.environment`:
   "exclude_patterns": [".git", "node_modules", "__pycache__"]
 }
 ```
+
+**Windows Agent - File Transfer Blocking (USB/Removable Drives):**
+
+The Windows agent can detect and block file transfers to removable drives (USB drives, external SSDs). When enabled, the agent monitors removable drives and automatically deletes files that match files in monitored directories.
+
+**Configuration:**
+```json
+{
+  "server_url": "http://localhost:55000/api/v1",
+  "agent_id": "windows-agent-001",
+  "agent_name": "Windows-Agent",
+  "heartbeat_interval": 30,
+  "monitoring": {
+    "file_system": true,
+    "clipboard": true,
+    "usb_devices": true,
+    "monitored_paths": [
+      "C:\\Users\\Public\\Documents",
+      "C:\\Users\\%USERNAME%\\Documents",
+      "C:\\Users\\%USERNAME%\\Desktop",
+      "C:\\Users\\%USERNAME%\\Downloads"
+    ],
+    "file_extensions": [".pdf", ".docx", ".xlsx", ".txt", ".csv", ".json", ".xml"],
+    "transfer_blocking": {
+      "enabled": true,
+      "block_removable_drives": true,
+      "poll_interval_seconds": 5
+    }
+  },
+  "classification": {
+    "enabled": true,
+    "max_file_size_mb": 10
+  }
+}
+```
+
+**Transfer Blocking Settings:**
+- `enabled`: Enable/disable transfer blocking (default: `false`)
+- `block_removable_drives`: Block transfers to removable drives (default: `true`)
+- `poll_interval_seconds`: How often to check for new files on removable drives (default: `5`)
+
+**How It Works:**
+1. Agent monitors specified directories for file changes
+2. When a file is copied to a removable drive, the agent detects it
+3. Agent calculates SHA256 hash of the copied file
+4. Agent searches monitored directories for a file with matching hash
+5. If match found, agent deletes the file from the removable drive
+6. Agent sends a blocked transfer event to the server with `action: "blocked"`
+
+**Important Notes:**
+- Transfer blocking only works for files that exist in monitored directories
+- Files are deleted from the removable drive after copy completes (not during copy)
+- The agent handles Windows file locking issues automatically with retry mechanism
+- Blocked transfers appear in the dashboard Events page with "Action Taken: Blocked"
 
 #### Log File Location
 

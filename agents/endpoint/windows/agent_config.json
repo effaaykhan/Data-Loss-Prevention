@@ -24,7 +24,12 @@
       ".json",
       ".xml",
       ".sql"
-    ]
+    ],
+    "transfer_blocking": {
+      "enabled": false,
+      "block_removable_drives": true,
+      "poll_interval_seconds": 5
+    }
   },
   "classification": {
     "enabled": true,

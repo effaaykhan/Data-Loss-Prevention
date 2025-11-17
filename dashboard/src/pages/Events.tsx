@@ -1,10 +1,250 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Filter, FileText, Calendar, Shield, AlertTriangle } from 'lucide-react'
+import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
 import { searchEvents, getAgents, type Event, type Agent } from '@/lib/api'
-import { formatDate, getSeverityColor, cn, truncate } from '@/lib/utils'
+import { formatDate, getSeverityColor, cn, truncate, formatDateTimeIST } from '@/lib/utils'
+
+// Event Detail Modal Component
+function EventDetailModal({ 
+  event, 
+  onClose, 
+  isBlockedTransfer, 
+  formatFileSize, 
+  getDriveLetter 
+}: { 
+  event: any
+  onClose: () => void
+  isBlockedTransfer: boolean
+  formatFileSize: (bytes: number) => string
+  getDriveLetter: (path: string) => string
+}) {
+  const [showRawData, setShowRawData] = useState(false)
+
+  if (isBlockedTransfer) {
+    // User-friendly display for blocked transfers
+    const blocked = event.blocked !== false // Default to true if not specified
+    const sourcePath = event.file_path || ''
+    const destPath = event.destination || ''
+    const fileName = event.file_name || sourcePath.split(/[/\\]/).pop() || 'Unknown'
+    const fileSize = event.file_size ? formatFileSize(event.file_size) : 'Unknown size'
+    const driveLetter = getDriveLetter(destPath)
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 z-50" onClick={onClose}>
+        <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-xl ${blocked ? 'bg-red-100 border border-red-300' : 'bg-orange-100 border border-orange-300'}`}>
+                <Shield className={`w-8 h-8 ${blocked ? 'text-red-600' : 'text-orange-600'}`} />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {blocked ? 'File Transfer Blocked' : 'Transfer Attempt Detected'}
+                </h3>
+                <p className="text-gray-500 text-sm mt-1">{formatDateTimeIST(event.timestamp)}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Status Badge */}
+            <div className="flex items-center gap-3">
+              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
+                blocked 
+                  ? 'bg-green-100 border-green-300 text-green-700' 
+                  : 'bg-red-100 border-red-300 text-red-700'
+              }`}>
+                <Ban className="w-4 h-4" />
+                {blocked ? 'Successfully Blocked' : 'Block Failed'}
+              </span>
+              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium uppercase ${
+                event.severity === 'critical' 
+                  ? 'bg-red-100 border-red-300 text-red-700'
+                  : 'bg-orange-100 border-orange-300 text-orange-700'
+              }`}>
+                {event.severity}
+              </span>
+            </div>
+
+            {/* Transfer Flow Visualization */}
+            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center justify-between gap-4">
+                {/* Source */}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <File className="w-5 h-5 text-blue-600" />
+                    <label className="text-sm text-gray-600 uppercase font-medium">Source</label>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-gray-200">
+                    <p className="text-gray-900 font-semibold text-lg mb-1">{fileName}</p>
+                    <p className="text-gray-600 text-sm font-mono truncate" title={sourcePath}>
+                      {sourcePath}
+                    </p>
+                    <p className="text-gray-500 text-xs mt-2">{fileSize}</p>
+                  </div>
+                </div>
+
+                {/* Arrow */}
+                <div className="flex flex-col items-center gap-2">
+                  <ArrowRight className="w-6 h-6 text-gray-400" />
+                  <span className="text-xs text-gray-500 font-medium">Copied to</span>
+                </div>
+
+                {/* Destination */}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <HardDrive className="w-5 h-5 text-red-600" />
+                    <label className="text-sm text-gray-600 uppercase font-medium">Destination</label>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-red-300">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Usb className="w-4 h-4 text-red-600" />
+                      <p className="text-red-600 font-semibold">{driveLetter || 'USB Drive'}</p>
+                    </div>
+                    <p className="text-gray-600 text-sm font-mono truncate" title={destPath}>
+                      {destPath}
+                    </p>
+                    <p className="text-red-600 text-xs mt-2 font-medium">Blocked</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Event Details Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Agent</label>
+                <p className="text-gray-900 font-medium">{event.agent_id}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">User</label>
+                <p className="text-gray-900 font-medium">{event.user_email}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Transfer Type</label>
+                <p className="text-gray-900 font-medium capitalize">{event.transfer_type || 'USB Copy'}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Action Taken</label>
+                <p className="text-gray-900 font-medium capitalize">{event.action_taken || event.action || 'Blocked'}</p>
+              </div>
+            </div>
+
+            {/* File Hash (if available) */}
+            {event.file_hash && (
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <label className="text-xs text-gray-600 uppercase font-medium mb-2 block">File Hash (SHA256)</label>
+                <p className="text-gray-700 font-mono text-xs break-all">{event.file_hash}</p>
+              </div>
+            )}
+
+            {/* Raw JSON Data (Expandable) */}
+            <div className="border-t border-gray-200 pt-4">
+              <button
+                onClick={() => setShowRawData(!showRawData)}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors w-full"
+              >
+                {showRawData ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                <span className="text-sm font-medium">View Raw Event Data</span>
+              </button>
+              {showRawData && (
+                <div className="mt-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <pre className="text-xs text-gray-700 overflow-x-auto">
+                    {JSON.stringify(event, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Standard display for other event types
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <h3 className="text-2xl font-bold text-gray-900">Event Details</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-sm text-gray-600">Description</label>
+            <p className="text-gray-900 font-medium">{event.description}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-gray-600">Event Type</label>
+              <p className="text-gray-900 font-medium capitalize">{event.event_type}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Severity</label>
+              <p className="text-gray-900 font-medium capitalize">{event.severity}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Action Taken</label>
+              <p className="text-gray-900 font-medium capitalize">{event.action_taken || event.action || 'N/A'}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Timestamp</label>
+              <p className="text-gray-900 font-medium">{formatDateTimeIST(event.timestamp)}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">User</label>
+              <p className="text-gray-900 font-medium">{event.user_email}</p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Agent</label>
+              <p className="text-gray-900 font-medium">{event.agent_id}</p>
+            </div>
+          </div>
+          {event.file_path && (
+            <div>
+              <label className="text-sm text-gray-600">File Path</label>
+              <p className="text-gray-900 font-mono text-sm">{event.file_path}</p>
+            </div>
+          )}
+          {event.details && (
+            <div>
+              <label className="text-sm text-gray-600">Additional Details</label>
+              <p className="text-gray-900 font-mono text-sm bg-gray-50 p-4 rounded-lg">
+                {JSON.stringify(event.details, null, 2)}
+              </p>
+            </div>
+          )}
+          
+          {/* Raw JSON Data (Expandable) */}
+          <div className="border-t border-gray-200 pt-4">
+            <button
+              onClick={() => setShowRawData(!showRawData)}
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors w-full"
+            >
+              {showRawData ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              <span className="text-sm font-medium">View Raw Event Data</span>
+            </button>
+            {showRawData && (
+              <div className="mt-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <pre className="text-xs text-gray-700 overflow-x-auto">
+                  {JSON.stringify(event, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Events() {
   const [kqlQuery, setKqlQuery] = useState('')
@@ -37,6 +277,43 @@ export default function Events() {
     if (!agentId) return 'Unknown Agent'
     const agentName = agentMap.get(agentId)
     return agentName || agentId // Return agent_id if name not found, not "Unknown Agent"
+  }
+
+  // Helper function to format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
+  }
+
+  // Check if event is a blocked transfer
+  const isBlockedTransfer = (event: any): boolean => {
+    // Check if it's a file event with transfer-related indicators
+    if (event.event_type !== 'file') return false
+    
+    // Check for transfer-related fields
+    const hasTransferSubtype = event.event_subtype === 'transfer_blocked' || event.event_subtype === 'transfer_attempt'
+    const hasTransferType = event.transfer_type === 'usb_copy'
+    const hasDestination = event.destination && event.destination !== null
+    const hasBlockedField = event.blocked === true || event.blocked === false // Explicitly set
+    const descriptionMatches = event.description?.toLowerCase().includes('transfer blocked') || 
+                                event.description?.toLowerCase().includes('file transfer')
+    
+    // Must have file_path and at least one transfer indicator
+    return event.file_path && (
+      (hasTransferSubtype && hasDestination) ||
+      (hasTransferType && hasDestination) ||
+      (hasBlockedField && hasDestination && descriptionMatches)
+    )
+  }
+
+  // Extract USB drive letter from destination path
+  const getDriveLetter = (path: string): string => {
+    if (!path) return ''
+    const match = path.match(/^([A-Z]):/)
+    return match ? match[1] + ':' : ''
   }
 
   // Fetch events
@@ -283,35 +560,13 @@ export default function Events() {
 
       {/* Event Detail Modal */}
       {selectedEvent && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 z-50"
-          onClick={() => setSelectedEvent(null)}
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Event Details
-              </h3>
-              <code className="text-xs text-gray-500">{selectedEvent.event_id}</code>
-            </div>
-            <div className="p-6">
-              <pre className="text-xs bg-gray-50 p-4 rounded-lg overflow-x-auto">
-                {JSON.stringify(selectedEvent, null, 2)}
-              </pre>
-            </div>
-            <div className="p-6 border-t border-gray-200 flex justify-end">
-              <button
-                onClick={() => setSelectedEvent(null)}
-                className="btn-secondary"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <EventDetailModal 
+          event={selectedEvent} 
+          onClose={() => setSelectedEvent(null)}
+          isBlockedTransfer={isBlockedTransfer(selectedEvent)}
+          formatFileSize={formatFileSize}
+          getDriveLetter={getDriveLetter}
+        />
       )}
     </div>
   )

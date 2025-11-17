@@ -17,7 +17,7 @@ import signal
 import atexit
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import requests
 import win32clipboard
@@ -62,7 +62,12 @@ class AgentConfig:
                     str(Path.home() / "Desktop"),
                     str(Path.home() / "Downloads")
                 ],
-                "file_extensions": [".pdf", ".docx", ".xlsx", ".txt", ".csv", ".json", ".xml"]
+                "file_extensions": [".pdf", ".docx", ".xlsx", ".txt", ".csv", ".json", ".xml"],
+                "transfer_blocking": {
+                    "enabled": False,
+                    "block_removable_drives": True,
+                    "poll_interval_seconds": 5
+                }
             },
             "classification": {
                 "enabled": True,
@@ -122,6 +127,20 @@ class FileMonitorHandler(FileSystemEventHandler):
         return ext in monitored_exts if monitored_exts else True
 
 
+class RemovableDriveHandler(FileSystemEventHandler):
+    """Handles file system events on removable drives"""
+    
+    def __init__(self, agent, drive_letter: str):
+        self.agent = agent
+        self.drive_letter = drive_letter
+        super().__init__()
+    
+    def on_created(self, event: FileSystemEvent):
+        """Handle file creation on removable drive"""
+        if not event.is_directory:
+            self.agent.handle_removable_drive_file(event.src_path)
+
+
 class DLPAgent:
     """Main DLP Agent class"""
 
@@ -132,6 +151,11 @@ class DLPAgent:
         self.running = False
         self.observers = []
         self.last_clipboard = ""
+        
+        # Transfer blocking: Track removable drives and monitored directories
+        self.removable_drives = set()  # Track current removable drive letters: {'E:', 'F:'}
+        self.removable_observers = {}  # Track observers: {'E:': Observer instance}
+        self.monitored_directories = []  # List of monitored directory paths (expanded)
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -154,6 +178,10 @@ class DLPAgent:
         # Start USB monitoring
         if self.config.get("monitoring", {}).get("usb_devices", True):
             threading.Thread(target=self.monitor_usb, daemon=True).start()
+
+        # Start removable drive monitoring for transfer blocking
+        if self.config.get("monitoring", {}).get("transfer_blocking", {}).get("enabled", False):
+            threading.Thread(target=self.monitor_removable_drives, daemon=True).start()
 
         # Start heartbeat
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
@@ -196,6 +224,13 @@ class DLPAgent:
         for observer in self.observers:
             observer.stop()
             observer.join()
+        
+        # Stop removable drive observers
+        for drive, observer in self.removable_observers.items():
+            observer.stop()
+            observer.join()
+        self.removable_observers.clear()
+        
         logger.info("Agent stopped")
 
     def register_agent(self):
@@ -233,12 +268,14 @@ class DLPAgent:
     def start_file_monitoring(self):
         """Start monitoring file system"""
         monitored_paths = self.config.get("monitoring", {}).get("monitored_paths", [])
+        self.monitored_directories = []  # Track monitored directories for transfer blocking
 
         for path in monitored_paths:
             # Expand environment variables (e.g., %USERNAME%)
             expanded_path = os.path.expandvars(path)
             
             if os.path.exists(expanded_path):
+                self.monitored_directories.append(expanded_path)  # Track for transfer blocking
                 event_handler = FileMonitorHandler(self)
                 observer = Observer()
                 observer.schedule(event_handler, expanded_path, recursive=True)
@@ -312,6 +349,89 @@ class DLPAgent:
         # Start USB monitoring in a separate thread
         usb_thread = threading.Thread(target=usb_monitor_thread, daemon=True)
         usb_thread.start()
+
+    def get_removable_drives(self) -> List[str]:
+        """
+        Get list of removable drive letters using WMI
+        
+        Returns:
+            List of drive letters (e.g., ['E:', 'F:'])
+        """
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            c = wmi.WMI()
+            drives = []
+            for disk in c.Win32_LogicalDisk(DriveType=2):  # DriveType 2 = Removable
+                drive_letter = disk.DeviceID  # e.g., "E:"
+                if os.path.exists(drive_letter):
+                    drives.append(drive_letter)
+            pythoncom.CoUninitialize()
+            return drives
+        except Exception as e:
+            logger.error(f"Error detecting removable drives: {e}")
+            return []
+
+    def monitor_removable_drives(self):
+        """
+        Monitor removable drives for file operations
+        Runs in background thread, polls for new drives periodically
+        """
+        poll_interval = self.config.get("monitoring", {}).get("transfer_blocking", {}).get("poll_interval_seconds", 5)
+        
+        while self.running:
+            try:
+                current_drives = set(self.get_removable_drives())
+                
+                # Find newly connected drives
+                new_drives = current_drives - self.removable_drives
+                for drive in new_drives:
+                    self._start_monitoring_removable_drive(drive)
+                
+                # Find disconnected drives
+                disconnected_drives = self.removable_drives - current_drives
+                for drive in disconnected_drives:
+                    self._stop_monitoring_removable_drive(drive)
+                
+                self.removable_drives = current_drives
+                time.sleep(poll_interval)
+                
+            except Exception as e:
+                logger.error(f"Error monitoring removable drives: {e}")
+                time.sleep(poll_interval)
+
+    def _start_monitoring_removable_drive(self, drive_letter: str):
+        """
+        Start monitoring a specific removable drive
+        
+        Args:
+            drive_letter: Drive letter to monitor (e.g., "E:")
+        """
+        try:
+            if drive_letter in self.removable_observers:
+                return  # Already monitoring
+            
+            logger.info(f"Starting monitoring for removable drive: {drive_letter}")
+            
+            # Create handler specifically for removable drives
+            handler = RemovableDriveHandler(self, drive_letter)
+            observer = Observer()
+            observer.schedule(handler, drive_letter, recursive=True)
+            observer.start()
+            
+            self.removable_observers[drive_letter] = observer
+            logger.info(f"Monitoring started for {drive_letter}")
+            
+        except Exception as e:
+            logger.error(f"Failed to start monitoring {drive_letter}: {e}")
+
+    def _stop_monitoring_removable_drive(self, drive_letter: str):
+        """Stop monitoring a disconnected removable drive"""
+        if drive_letter in self.removable_observers:
+            observer = self.removable_observers.pop(drive_letter)
+            observer.stop()
+            observer.join()
+            logger.info(f"Stopped monitoring {drive_letter}")
 
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
@@ -415,6 +535,224 @@ class DLPAgent:
         except Exception as e:
             logger.error(f"Error handling USB event: {e}")
 
+    def handle_removable_drive_file(self, file_path: str):
+        """
+        Handle file created on removable drive
+        Check if it matches a file from monitored directory
+        
+        Args:
+            file_path: Path to file on removable drive (e.g., "E:\\document.pdf")
+        """
+        try:
+            logger.info(f"File detected on removable drive: {file_path}")
+            
+            # Normalize path (handle both E:file.txt and E:\file.txt)
+            if not file_path.startswith("\\"):
+                # Fix path format if missing backslash after drive letter
+                if len(file_path) > 1 and file_path[1] == ":" and file_path[2] != "\\":
+                    file_path = file_path[:2] + "\\" + file_path[2:]
+            
+            # Get file info
+            if not os.path.exists(file_path):
+                logger.debug(f"File no longer exists: {file_path}")
+                return
+            
+            file_size = os.path.getsize(file_path)
+            file_name = Path(file_path).name
+            logger.info(f"File info - Name: {file_name}, Size: {file_size} bytes")
+            
+            # Wait a bit for file copy to complete (Windows Explorer may still have file locked)
+            time.sleep(0.3)
+            
+            # Calculate hash (with retry in case file is locked during copy)
+            file_hash = None
+            for attempt in range(5):  # Increased to 5 attempts
+                try:
+                    file_hash = self._calculate_file_hash(file_path)
+                    if file_hash:
+                        break
+                except PermissionError:
+                    # File is locked, wait longer and retry
+                    wait_time = 0.5 * (attempt + 1)  # Increasing wait time: 0.5s, 1s, 1.5s, 2s
+                    if attempt < 4:
+                        logger.debug(f"File locked, waiting {wait_time}s before retry (attempt {attempt + 1}/5)")
+                        time.sleep(wait_time)
+                    continue
+                except Exception as e:
+                    if attempt < 4:
+                        logger.debug(f"Hash calculation error, retrying in 0.5s (attempt {attempt + 1}/5): {e}")
+                        time.sleep(0.5)
+                    continue
+            
+            if not file_hash:
+                logger.error(f"Failed to calculate hash for: {file_path} after 5 attempts")
+                return
+            logger.info(f"File hash calculated: {file_hash[:16]}... (length: {len(file_hash)})")
+            
+            # Check monitored directories
+            logger.info(f"Checking {len(self.monitored_directories)} monitored directories: {self.monitored_directories}")
+            
+            # Check if identical file exists in monitored directories
+            source_file = self._find_source_file_in_monitored_dirs(file_hash, file_size, file_name)
+            
+            if source_file:
+                logger.warning(f"Copy detected: {source_file} -> {file_path}")
+                
+                # Block the transfer
+                blocked = self.block_file_transfer(file_path)
+                
+                # Send blocked transfer event
+                self._send_blocked_transfer_event(source_file, file_path, file_hash, file_size, blocked)
+            else:
+                logger.info(f"File on removable drive not found in monitored directories: {file_path} (Name: {file_name}, Size: {file_size})")
+                
+        except Exception as e:
+            logger.error(f"Error handling removable drive file: {e}", exc_info=True)
+
+    def _find_source_file_in_monitored_dirs(self, file_hash: str, file_size: int, file_name: str) -> Optional[str]:
+        """
+        Check if file with matching hash/size/name exists in monitored directories
+        
+        Args:
+            file_hash: SHA256 hash of file
+            file_size: Size in bytes
+            file_name: Filename
+            
+        Returns:
+            Path to source file if found, None otherwise
+        """
+        if not file_hash:
+            logger.warning("File hash is empty, cannot match")
+            return None
+        
+        if not self.monitored_directories:
+            logger.warning("No monitored directories configured")
+            return None
+        
+        logger.info(f"Searching for file: {file_name} (size: {file_size}, hash: {file_hash[:16]}...)")
+        
+        # Search all monitored directories
+        for monitored_dir in self.monitored_directories:
+            try:
+                logger.info(f"Searching in: {monitored_dir}")
+                file_count = 0
+                # Walk through directory tree
+                for root, dirs, files in os.walk(monitored_dir):
+                    # Skip if file name doesn't match (quick filter)
+                    if file_name in files:
+                        file_count += 1
+                        candidate_path = os.path.join(root, file_name)
+                        logger.info(f"Found candidate #{file_count}: {candidate_path}")
+                        
+                        # Check size first (faster than hash)
+                        try:
+                            candidate_size = os.path.getsize(candidate_path)
+                            logger.info(f"Candidate size: {candidate_size}, Target size: {file_size}")
+                            if candidate_size != file_size:
+                                logger.info(f"Size mismatch: {candidate_size} != {file_size}, skipping")
+                                continue
+                        except Exception as e:
+                            logger.warning(f"Error getting size for {candidate_path}: {e}")
+                            continue
+                        
+                        # Check hash (slower but definitive)
+                        logger.info(f"Calculating hash for: {candidate_path}")
+                        candidate_hash = self._calculate_file_hash(candidate_path)
+                        if not candidate_hash:
+                            logger.warning(f"Failed to calculate hash for candidate: {candidate_path}")
+                            continue
+                        logger.info(f"Candidate hash: {candidate_hash[:16]}..., Target hash: {file_hash[:16]}...")
+                        if candidate_hash == file_hash:
+                            logger.warning(f"MATCH FOUND! Source: {candidate_path}")
+                            return candidate_path
+                        else:
+                            logger.info(f"Hash mismatch, continuing search...")
+                            
+                if file_count == 0:
+                    logger.info(f"No files named '{file_name}' found in {monitored_dir}")
+                            
+            except Exception as e:
+                logger.error(f"Error searching {monitored_dir}: {e}", exc_info=True)
+                continue
+        
+        logger.warning(f"No matching file found for: {file_name} after searching all monitored directories")
+        return None
+
+    def block_file_transfer(self, file_path: str) -> bool:
+        """
+        Block file transfer by deleting the file
+        
+        Args:
+            file_path: Path to file on removable drive
+            
+        Returns:
+            True if successfully blocked, False otherwise
+        """
+        try:
+            # Try to delete the file
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.warning(f"Blocked file transfer by deleting: {file_path}")
+                return True
+            else:
+                logger.warning(f"File already removed: {file_path}")
+                return False
+        except PermissionError:
+            logger.error(f"Permission denied when blocking transfer: {file_path}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to block transfer: {e}", exc_info=True)
+            return False
+
+    def _send_blocked_transfer_event(self, source_file: str, dest_file: str, file_hash: str, file_size: int, blocked: bool):
+        """
+        Send event for blocked transfer
+        
+        Args:
+            source_file: Path to source file in monitored directory
+            dest_file: Path to destination file on removable drive
+            file_hash: File hash
+            file_size: File size
+            blocked: Whether blocking was successful
+        """
+        try:
+            # Read content for classification
+            content = self._read_file_content(source_file, max_bytes=100000)
+            classification = self._classify_content(content)
+            
+            # Determine severity (always critical for blocked transfers)
+            severity = "critical" if blocked else "high"
+            
+            event_data = {
+                "event_id": str(uuid.uuid4()),
+                "event_type": "file",
+                "event_subtype": "transfer_blocked" if blocked else "transfer_attempt",
+                "agent_id": self.agent_id,
+                "source_type": "agent",
+                "user_email": f"{os.getlogin()}@{socket.gethostname()}",
+                "description": f"File transfer blocked: {Path(source_file).name} -> {Path(dest_file).name}",
+                "severity": severity,
+                "action": "blocked" if blocked else "logged",
+                "file_path": source_file,  # Source file path
+                "file_name": Path(source_file).name,
+                "file_size": file_size,
+                "file_hash": file_hash,
+                "classification": classification,
+                "destination": dest_file,  # Destination on removable drive
+                "blocked": blocked,
+                "transfer_type": "usb_copy",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            logger.info(
+                f"Sending blocked transfer event: {Path(source_file).name} -> {Path(dest_file).name} "
+                f"(Blocked: {blocked}, Severity: {severity})"
+            )
+            self.send_event(event_data)
+            
+        except Exception as e:
+            logger.error(f"Error sending blocked transfer event: {e}", exc_info=True)
+
     def _classify_content(self, content: str) -> Dict[str, Any]:
         """Classify content for sensitive data"""
         import re
@@ -458,7 +796,11 @@ class DLPAgent:
                 for byte_block in iter(lambda: f.read(4096), b""):
                     sha256_hash.update(byte_block)
             return sha256_hash.hexdigest()
-        except:
+        except PermissionError:
+            # Re-raise PermissionError so caller can handle retry logic
+            raise
+        except Exception as e:
+            logger.debug(f"Error calculating hash for {file_path}: {e}")
             return ""
 
     def _read_file_content(self, file_path: str, max_bytes: int = 100000) -> str:
