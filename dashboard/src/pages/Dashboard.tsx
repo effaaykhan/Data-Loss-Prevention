@@ -3,6 +3,28 @@ import { Server, AlertCircle, FileText, ShieldAlert } from 'lucide-react'
 import StatsCard from '@/components/StatsCard'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
+
+// IST timezone
+const IST_TIMEZONE = 'Asia/Kolkata'
+
+// Helper to format time in IST
+const formatTimeIST = (date: Date) => {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date)
+}
+
+// Helper to format date/time in IST
+const formatDateTimeIST = (date: Date) => {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIMEZONE,
+    dateStyle: 'long',
+    timeStyle: 'long'
+  }).format(date)
+}
 import {
   LineChart,
   Line,
@@ -122,13 +144,16 @@ export default function Dashboard() {
                   dataKey="timestamp"
                   tick={{ fontSize: 12 }}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
-                    return `${date.getHours()}:00`
+                    // Format in IST
+                    return formatTimeIST(new Date(value))
                   }}
                 />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
-                  labelFormatter={(value) => new Date(value).toLocaleString()}
+                  labelFormatter={(value) => {
+                    // Format in IST
+                    return formatDateTimeIST(new Date(value))
+                  }}
                 />
                 <Legend />
                 <Line

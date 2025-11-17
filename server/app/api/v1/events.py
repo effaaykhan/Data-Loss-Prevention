@@ -33,6 +33,7 @@ class DLPEvent(BaseModel):
     timestamp: datetime
     event_type: str
     source: str
+    agent_id: str  # Agent ID that generated the event
     user_email: str
     classification_score: float
     classification_labels: List[str]
@@ -130,7 +131,13 @@ async def get_events(
         # Remove MongoDB _id field and ensure all required fields exist
         event_dict = {k: v for k, v in event_doc.items() if k != "_id"}
         
+        # Convert datetime objects to ISO format strings with Z suffix (UTC)
+        if "timestamp" in event_dict and isinstance(event_dict["timestamp"], datetime):
+            event_dict["timestamp"] = event_dict["timestamp"].isoformat() + "Z"
+        
         # Ensure required fields have defaults if missing
+        if "agent_id" not in event_dict:
+            event_dict["agent_id"] = event_dict.get("agent_id") or "unknown"
         if "classification_score" not in event_dict:
             event_dict["classification_score"] = 0.0
         if "classification_labels" not in event_dict:

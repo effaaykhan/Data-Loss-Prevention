@@ -104,7 +104,7 @@ export type Agent = {
   name: string
   os: string
   ip_address: string
-  status: string
+  // Status field removed - agents are considered active if they've sent heartbeat within timeout period
   last_seen: string
   created_at: string
   version?: string

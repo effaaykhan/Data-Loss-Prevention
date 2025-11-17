@@ -1,4 +1,5 @@
 import { AlertCircle, Ban, CheckCircle, Clock } from 'lucide-react'
+import { formatTimeIST } from '@/lib/utils'
 
 interface Event {
   id: string
@@ -55,7 +56,7 @@ export default function RecentEvents({ events }: RecentEventsProps) {
                 </div>
                 <span className="flex items-center gap-1 text-xs text-gray-500">
                   <Clock className="w-3 h-3" />
-                  {new Date(event.timestamp).toLocaleTimeString()}
+                  {formatTimeIST(event.timestamp)}
                 </span>
               </div>
               <p className="text-sm text-gray-700">{event.description}</p>

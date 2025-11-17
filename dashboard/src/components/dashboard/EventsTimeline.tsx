@@ -4,6 +4,19 @@ import { useQuery } from '@tanstack/react-query'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { api } from '@/lib/api'
 
+// IST timezone
+const IST_TIMEZONE = 'Asia/Kolkata'
+
+// Helper to format time in IST
+const formatTimeIST = (date: Date) => {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date)
+}
+
 export default function EventsTimeline() {
   const { data, isLoading } = useQuery({
     queryKey: ['event-timeline'],
@@ -28,7 +41,9 @@ export default function EventsTimeline() {
         <XAxis
           dataKey="timestamp"
           stroke="#6b7280"
-          tickFormatter={(value) => new Date(value).toLocaleTimeString('en-US', { hour: '2-digit' })}
+          tickFormatter={(value) => {
+            return formatTimeIST(new Date(value))
+          }}
         />
         <YAxis stroke="#6b7280" />
         <Tooltip

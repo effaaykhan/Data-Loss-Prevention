@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Filter, FileText, Calendar, Shield, AlertTriangle } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
-import { searchEvents, type Event } from '@/lib/api'
+import { searchEvents, getAgents, type Event, type Agent } from '@/lib/api'
 import { formatDate, getSeverityColor, cn, truncate } from '@/lib/utils'
 
 export default function Events() {
@@ -11,6 +11,33 @@ export default function Events() {
   const [activeQuery, setActiveQuery] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+
+  // Fetch agents to map agent_id to agent name
+  const { data: agentsData } = useQuery({
+    queryKey: ['agents'],
+    queryFn: getAgents,
+    refetchInterval: 30000, // Refresh every 30s
+  })
+
+  // Create agent lookup map: agent_id -> agent name
+  const agentMap = useMemo(() => {
+    const map = new Map<string, string>()
+    if (agentsData && Array.isArray(agentsData)) {
+      agentsData.forEach((agent: Agent) => {
+        if (agent?.agent_id && agent?.name) {
+          map.set(agent.agent_id, agent.name)
+        }
+      })
+    }
+    return map
+  }, [agentsData])
+
+  // Helper function to get agent name from agent_id
+  const getAgentName = (agentId?: string): string => {
+    if (!agentId) return 'Unknown Agent'
+    const agentName = agentMap.get(agentId)
+    return agentName || agentId // Return agent_id if name not found, not "Unknown Agent"
+  }
 
   // Fetch events
   const {
@@ -206,8 +233,11 @@ export default function Events() {
                     </div>
 
                     <div className="flex items-center gap-3 text-sm text-gray-600">
-                      <span className="font-medium text-gray-900">
-                        {event.agent_id || 'Unknown Agent'}
+                      <span>
+                        <span className="text-gray-500">Agent:</span>{' '}
+                        <span className="font-medium text-gray-900">
+                          {getAgentName(event.agent_id)}
+                        </span>
                       </span>
                       <span className="text-gray-400">•</span>
                       <span>{formatDate(event.timestamp, 'PPpp')}</span>

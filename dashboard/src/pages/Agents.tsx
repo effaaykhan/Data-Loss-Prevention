@@ -1,14 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Server, Circle, Trash2, RefreshCw } from 'lucide-react'
+import { Server, Trash2, RefreshCw } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
 import { getAgents, deleteAgent, type Agent } from '@/lib/api'
-import { formatRelativeTime, getStatusColor, cn } from '@/lib/utils'
+import { formatRelativeTime, formatDate } from '@/lib/utils'
 
 export default function Agents() {
   const queryClient = useQueryClient()
 
-  // Fetch agents
+  // Fetch agents with more frequent refresh for real-time updates
   const {
     data: agents,
     isLoading,
@@ -17,7 +17,9 @@ export default function Agents() {
   } = useQuery({
     queryKey: ['agents'],
     queryFn: getAgents,
-    refetchInterval: 10000, // Refresh every 10s
+    refetchInterval: 10000, // Refresh every 10s for real-time updates
+    staleTime: 0, // Always consider data stale to prevent caching
+    cacheTime: 0, // Don't cache data to ensure fresh results
   })
 
   // Delete agent mutation
@@ -47,9 +49,7 @@ export default function Agents() {
     )
   }
 
-  const activeAgents = agents?.filter((a) => a.status === 'active') || []
-  const inactiveAgents = agents?.filter((a) => a.status === 'inactive') || []
-  const pendingAgents = agents?.filter((a) => a.status === 'pending') || []
+  // All agents shown are active (backend filters out dead agents automatically)
 
   return (
     <div className="space-y-6">
@@ -72,58 +72,19 @@ export default function Agents() {
       </div>
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <Server className="h-5 w-5 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Total Agents</p>
+              <p className="text-sm text-gray-600">Active Agents</p>
               <p className="text-2xl font-bold text-gray-900">
                 {agents?.length || 0}
               </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <Circle className="h-5 w-5 text-green-600 fill-current" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Active</p>
-              <p className="text-2xl font-bold text-green-600">
-                {activeAgents.length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <Circle className="h-5 w-5 text-gray-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Inactive</p>
-              <p className="text-2xl font-bold text-gray-600">
-                {inactiveAgents.length}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Circle className="h-5 w-5 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-yellow-600">
-                {pendingAgents.length}
+              <p className="text-xs text-gray-500 mt-1">
+                Agents that have sent heartbeat within the last 5 minutes
               </p>
             </div>
           </div>
@@ -140,7 +101,6 @@ export default function Agents() {
                 <th>Name</th>
                 <th>OS</th>
                 <th>IP Address</th>
-                <th>Status</th>
                 <th>Last Seen</th>
                 <th>Registered</th>
                 <th>Actions</th>
@@ -149,11 +109,11 @@ export default function Agents() {
             <tbody>
               {agents?.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12">
+                  <td colSpan={7} className="text-center py-12">
                     <Server className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600 font-medium">No agents found</p>
+                    <p className="text-gray-600 font-medium">No active agents</p>
                     <p className="text-sm text-gray-500 mt-1">
-                      Agents will appear here once they register
+                      Agents will appear here once they register and send heartbeat
                     </p>
                   </td>
                 </tr>
@@ -191,13 +151,10 @@ export default function Agents() {
                       <code className="text-xs">{agent.ip_address}</code>
                     </td>
                     <td>
-                      <span className={cn('badge', getStatusColor(agent.status))}>
-                        <Circle className="h-2 w-2 fill-current" />
-                        {agent.status}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="text-sm text-gray-600">
+                      <span 
+                        className="text-sm text-gray-600 cursor-help"
+                        title={formatDate(agent.last_seen, 'PPpp')}
+                      >
                         {formatRelativeTime(agent.last_seen)}
                       </span>
                     </td>
@@ -210,7 +167,7 @@ export default function Agents() {
                       <button
                         onClick={() => handleDelete(agent.agent_id)}
                         className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Delete agent"
+                        title="Delete agent entry"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

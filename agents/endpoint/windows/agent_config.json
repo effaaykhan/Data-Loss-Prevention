@@ -1,8 +1,8 @@
 {
   "server_url": "http://localhost:55000/api/v1",
   "agent_id": "windows-agent-001",
-  "agent_name": "Windows-Endpoint-01",
-  "heartbeat_interval": 60,
+  "agent_name": "Windows-Agent",
+  "heartbeat_interval": 30,
   "monitoring": {
     "file_system": true,
     "clipboard": true,

@@ -2,6 +2,9 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { format, formatDistanceToNow } from 'date-fns'
 
+// IST timezone
+const IST_TIMEZONE = 'Asia/Kolkata'
+
 /**
  * Utility function to merge Tailwind CSS classes
  */
@@ -10,22 +13,117 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format date to human-readable string
+ * Get IST date components using Intl.DateTimeFormat
  */
-export function formatDate(date: string | Date, formatStr = 'PPpp'): string {
-  const d = typeof date === 'string' ? new Date(date) : date
-  return format(d, formatStr)
+function getISTComponents(date: Date) {
+  const formatter = new Intl.DateTimeFormat('en-IN', {
+    timeZone: IST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+  
+  const parts = formatter.formatToParts(date)
+  const result: Record<string, string> = {}
+  parts.forEach(part => {
+    result[part.type] = part.value
+  })
+  return result
 }
 
 /**
- * Format date as relative time (e.g., "2 hours ago")
+ * Parse date string as UTC (handles both with and without timezone)
+ */
+function parseAsUTC(date: string | Date): Date {
+  if (date instanceof Date) return date
+  
+  // If string doesn't end with Z or timezone offset, assume it's UTC
+  const dateStr = date.trim()
+  if (!dateStr.includes('Z') && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
+    // No timezone info - append Z to treat as UTC
+    return new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z')
+  }
+  
+  return new Date(dateStr)
+}
+
+/**
+ * Format date to human-readable string in IST
+ */
+export function formatDate(date: string | Date, formatStr = 'PPpp'): string {
+  if (!date) return 'Never'
+  try {
+    const d = parseAsUTC(date)
+    if (isNaN(d.getTime())) return 'Invalid date'
+    
+    // Use Intl.DateTimeFormat to get IST representation
+    const formatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone: IST_TIMEZONE,
+      dateStyle: 'long',
+      timeStyle: 'long'
+    })
+    return formatter.format(d)
+  } catch (error) {
+    return 'Invalid date'
+  }
+}
+
+/**
+ * Format date as relative time (e.g., "2 hours ago") - calculated from IST
  */
 export function formatRelativeTime(date: string | Date | null | undefined): string {
   if (!date) return 'Never'
   try {
-    const d = typeof date === 'string' ? new Date(date) : date
+    const d = parseAsUTC(date)
     if (isNaN(d.getTime())) return 'Invalid date'
+    // Calculate relative time - date-fns works with Date objects correctly
     return formatDistanceToNow(d, { addSuffix: true })
+  } catch (error) {
+    return 'Invalid date'
+  }
+}
+
+/**
+ * Format time in IST (for time-only displays)
+ */
+export function formatTimeIST(date: string | Date): string {
+  if (!date) return 'Never'
+  try {
+    const d = parseAsUTC(date)
+    if (isNaN(d.getTime())) return 'Invalid date'
+    
+    const formatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone: IST_TIMEZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+    return formatter.format(d)
+  } catch (error) {
+    return 'Invalid date'
+  }
+}
+
+/**
+ * Format date and time in IST (for toLocaleString replacement)
+ */
+export function formatDateTimeIST(date: string | Date): string {
+  if (!date) return 'Never'
+  try {
+    const d = parseAsUTC(date)
+    if (isNaN(d.getTime())) return 'Invalid date'
+    
+    const formatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone: IST_TIMEZONE,
+      dateStyle: 'long',
+      timeStyle: 'long'
+    })
+    return formatter.format(d)
   } catch (error) {
     return 'Invalid date'
   }

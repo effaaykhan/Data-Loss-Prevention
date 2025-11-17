@@ -13,6 +13,8 @@ import socket
 import platform
 import threading
 import uuid
+import signal
+import atexit
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -50,7 +52,7 @@ class AgentConfig:
             "server_url": default_server_url,
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
-            "heartbeat_interval": 60,
+            "heartbeat_interval": 30,  # Reduced from 60s to 30s for more frequent updates
             "monitoring": {
                 "file_system": True,
                 "clipboard": True,
@@ -166,9 +168,31 @@ class DLPAgent:
             logger.info("Shutting down agent...")
             self.stop()
 
+    def unregister_agent(self):
+        """Unregister agent from server"""
+        try:
+            response = requests.delete(
+                f"{self.server_url}/agents/{self.agent_id}/unregister",
+                timeout=5
+            )
+            if response.status_code in [200, 204]:
+                logger.info("Agent unregistered from server")
+            else:
+                logger.debug(f"Unregister response: {response.status_code}")
+        except Exception as e:
+            logger.debug(f"Failed to unregister agent: {e}")
+
     def stop(self):
         """Stop the agent"""
+        if not self.running:
+            return  # Already stopped
+        
         self.running = False
+        
+        # Unregister from server
+        self.unregister_agent()
+        
+        # Stop file observers
         for observer in self.observers:
             observer.stop()
             observer.join()
@@ -464,7 +488,8 @@ class DLPAgent:
 
     def heartbeat_loop(self):
         """Send periodic heartbeat to server"""
-        interval = self.config.get("heartbeat_interval", 60)
+        # Reduced interval from 60s to 30s for more frequent updates
+        interval = self.config.get("heartbeat_interval", 30)
 
         while self.running:
             try:
@@ -475,25 +500,27 @@ class DLPAgent:
             time.sleep(interval)
 
     def send_heartbeat(self):
-        """Send heartbeat to server"""
+        """Send heartbeat to server with timestamp"""
         try:
+            # Send timestamp in ISO format for server validation
             data = {
-                "agent_id": self.agent_id,
-                "status": "online",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "ip_address": socket.gethostbyname(socket.gethostname())
             }
 
             response = requests.put(
                 f"{self.server_url}/agents/{self.agent_id}/heartbeat",
                 json=data,
-                timeout=5
+                timeout=30  # Increased timeout to handle slow server responses
             )
 
             if response.status_code == 200:
-                logger.debug("Heartbeat sent")
+                logger.info("Heartbeat sent successfully")
+            else:
+                logger.warning(f"Heartbeat response: {response.status_code}")
 
         except Exception as e:
-            logger.debug(f"Heartbeat failed: {e}")
+            logger.error(f"Heartbeat failed: {e}", exc_info=True)
 
 
 def main():
@@ -504,6 +531,19 @@ def main():
     print()
 
     agent = DLPAgent()
+    
+    # Register signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down...")
+        agent.stop()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Register atexit handler as backup
+    atexit.register(agent.stop)
+    
     agent.start()
 
 

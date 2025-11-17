@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X } from 'lucide-react'
 import { api } from '@/lib/api'
+import { formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
 export default function EventsPage() {
@@ -320,7 +321,7 @@ export default function EventsPage() {
                       <div className="flex items-center gap-4 text-sm text-gray-400">
                         <span>User: <span className="text-white font-medium">{event.user_email}</span></span>
                         <span>Agent: <span className="text-white font-medium">{event.agent_id}</span></span>
-                        <span>{new Date(event.timestamp).toLocaleString()}</span>
+                        <span>{formatDateTimeIST(event.timestamp)}</span>
                       </div>
                       {event.details && (
                         <p className="text-gray-400 text-sm mt-2">{event.details?.file_name || event.details}</p>
@@ -363,7 +364,7 @@ export default function EventsPage() {
                   </div>
                   <div>
                     <label className="text-sm text-gray-400">Timestamp</label>
-                    <p className="text-white font-medium">{new Date(selectedEvent.timestamp).toLocaleString()}</p>
+                    <p className="text-white font-medium">{formatDateTimeIST(selectedEvent.timestamp)}</p>
                   </div>
                   <div>
                     <label className="text-sm text-gray-400">User</label>

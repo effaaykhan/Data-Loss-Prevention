@@ -1,6 +1,6 @@
 # Changelog - Testing and Fixes
 
-**Date:** November 14-15, 2025  
+**Date:** November 14-17, 2025  
 **Testing Environment:** WSL2 (Ubuntu on Windows)  
 **Tested By:** Vansh-Raja
 
@@ -10,10 +10,86 @@ This document details all changes, fixes, and improvements made during testing a
 
 ## Summary
 
-- **Total Files Modified:** 30 files
-- **Lines Changed:** +2,350 insertions, -600 deletions
+- **Total Files Modified:** 46 files
+- **Lines Changed:** +2,801 insertions, -735 deletions
 - **New Files:** 2 (.env.example, Login page component)
-- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration, Configuration system (removed hardcoded paths/IPs), Windows Agent USB monitoring threading fix
+- **Major Fixes:** Dashboard authentication, Dashboard overview page, Alerts page, Events API, Linux Agent connectivity, Windows Agent connectivity, Docker configuration, Configuration system (removed hardcoded paths/IPs), Windows Agent USB monitoring threading fix, Agent lifecycle management, Timezone display (IST), Heartbeat system improvements
+
+---
+
+## 🎯 Latest Updates (November 17, 2025)
+
+### 12. Agent Lifecycle Management and Heartbeat Improvements
+
+#### Problem
+- Agents didn't unregister cleanly on shutdown, leaving stale entries in dashboard
+- Heartbeat timeout errors (5s timeout too short)
+- Rate limiting middleware blocking agent heartbeats
+- Agent names using hostname instead of friendly names
+- "Last seen" timestamps not updating correctly
+- Dashboard showing dead/inactive agents
+
+#### Solution
+- **Graceful Agent Shutdown:**
+  - Added `unregister_agent()` method to both Linux and Windows agents
+  - Agents now call `/agents/{agent_id}/unregister` endpoint on shutdown
+  - Added signal handlers (SIGINT, SIGTERM) for clean shutdown
+  - Added `atexit` handler as backup for cleanup
+
+- **Heartbeat System Improvements:**
+  - Increased heartbeat timeout from 5s to 30s (handles slow server responses)
+  - Reduced heartbeat interval from 60s to 30s (more frequent updates)
+  - Heartbeat now sends timestamp (ISO format with Z suffix) and IP address
+  - Improved heartbeat logging (INFO level instead of DEBUG)
+  - Fixed datetime timezone awareness in heartbeat endpoint
+
+- **Rate Limiting Fix:**
+  - Bypassed rate limiting for agent endpoints (heartbeat, registration)
+  - Prevents Redis delays from blocking critical agent operations
+  - Fixed datetime timezone comparison errors in rate limiting
+
+- **Agent Name Standardization:**
+  - Linux agent default name: "Linux-Agent" (was hostname)
+  - Windows agent default name: "Windows-Agent" (configurable)
+  - Updated config files with new default names
+
+- **Backend Agent Management:**
+  - Agents filtered by `last_seen` timestamp (only active within 5 minutes)
+  - Dead agents automatically cleaned up in background
+  - Removed `status` field (replaced with time-based filtering)
+  - Backend converts datetime to ISO strings with 'Z' suffix for frontend
+
+- **Frontend Improvements:**
+  - Dashboard shows only active agents (filtered by backend)
+  - Removed status indicators (no longer needed)
+  - "Last seen" displays correctly with IST timezone
+  - Auto-refresh every 10 seconds for real-time updates
+  - Events page shows agent names instead of agent IDs
+
+### 13. Timezone Display Fixes (IST)
+
+#### Problem
+- Dashboard timestamps displayed in UTC instead of IST
+- Timezone conversion not working correctly
+- "Last seen" times showing incorrect values
+
+#### Solution
+- **Frontend Timezone Conversion:**
+  - Added `parseAsUTC()` function to handle dates without timezone info
+  - All date formatting functions now use IST timezone (`Asia/Kolkata`)
+  - Updated `formatDate()`, `formatRelativeTime()`, `formatTimeIST()`, `formatDateTimeIST()`
+  - Fixed UTC date parsing (appends 'Z' if timezone missing)
+
+- **Backend Timestamp Formatting:**
+  - Backend explicitly converts datetime objects to ISO strings with 'Z' suffix
+  - Ensures frontend receives properly formatted UTC timestamps
+  - Fixed timezone awareness in heartbeat endpoint
+
+- **Dashboard Components Updated:**
+  - Events page: All timestamps display in IST
+  - Agents page: "Last seen" and "Registered" times in IST
+  - Dashboard charts: X-axis and tooltips show IST times
+  - Recent events: Timestamps in IST format
 
 ---
 

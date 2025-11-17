@@ -6,6 +6,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Monitor, Circle, Download, Plus, X, Copy, Check, Activity, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { api } from '@/lib/api'
+import { formatDateTimeIST } from '@/lib/utils'
 
 export default function AgentsPage() {
   const [showDeployModal, setShowDeployModal] = useState(false)
@@ -254,7 +255,7 @@ echo "Agent will start automatically and connect to $SERVER_IP"`
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-300 text-sm">
-                        {agent.last_seen ? new Date(agent.last_seen).toLocaleString() : 'Never'}
+                        {agent.last_seen ? formatDateTimeIST(agent.last_seen) : 'Never'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-gray-400 font-mono text-xs">{agent.version}</span>

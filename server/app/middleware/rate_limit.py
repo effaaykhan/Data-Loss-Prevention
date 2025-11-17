@@ -26,8 +26,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Get client IP
         client_ip = request.client.host
 
-        # Skip rate limiting for health checks
-        if request.url.path in ["/health", "/ready", "/metrics"]:
+        # Skip rate limiting for health checks and agent endpoints (heartbeat, registration)
+        if request.url.path in ["/health", "/ready", "/metrics"] or \
+           "/agents" in request.url.path and request.method in ["PUT", "POST"]:
             return await call_next(request)
 
         try:
