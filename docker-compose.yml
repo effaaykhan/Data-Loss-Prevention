@@ -124,7 +124,7 @@ services:
       - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
       - OPENSEARCH_USE_SSL=false
       - OPENSEARCH_VERIFY_CERTS=false
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     volumes:
       - ./server:/app
       - ./config:/etc/cybersentinel

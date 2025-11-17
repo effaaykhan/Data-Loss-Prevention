@@ -78,7 +78,7 @@ Edit `docker-compose.yml` and ensure the following environment variables are set
 ```yaml
 manager:
   environment:
-    - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000","http://YOUR_IP:3000"]
+    - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://YOUR_IP:3000
     - ALLOWED_HOSTS=localhost,127.0.0.1,YOUR_IP
     - PORT=55000
     - OPENSEARCH_USE_SSL=false
@@ -616,7 +616,7 @@ Get-Service -Name "CyberSentinelDLP"
 
 2. Edit `.env` and set:
    - `SERVER_IP`: Your server IP or domain (default: `localhost`)
-   - `CORS_ORIGINS`: JSON array of allowed origins (default includes localhost)
+   - `CORS_ORIGINS`: Comma-separated list of allowed origins (e.g., `http://localhost:3000,http://127.0.0.1:3000`)
    - `VITE_API_URL`: Dashboard API URL (defaults to `http://localhost:55000/api/v1`)
    - `VITE_WS_URL`: WebSocket URL (defaults to `ws://localhost:55000/ws`)
    - Database passwords and `SECRET_KEY`
@@ -631,7 +631,7 @@ Set in `docker-compose.yml` under `dashboard.build.args`:
 Set in `docker-compose.yml` under `manager.environment`:
 
 ```yaml
-- CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+- CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
 - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
 ```
 
