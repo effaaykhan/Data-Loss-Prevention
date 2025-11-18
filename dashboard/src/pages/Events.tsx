@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
-import { searchEvents, getAgents, type Event, type Agent } from '@/lib/api'
+import { searchEvents, getAgents, clearAllEvents, type Event, type Agent } from '@/lib/api'
 import { formatDate, getSeverityColor, cn, truncate, formatDateTimeIST } from '@/lib/utils'
+import toast from 'react-hot-toast'
 
 // Event Detail Modal Component
 function EventDetailModal({ 
@@ -344,6 +345,20 @@ export default function Events() {
     }
   }
 
+  const handleClearLogs = async () => {
+    if (!confirm('Are you sure you want to clear all events? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const result = await clearAllEvents()
+      toast.success(`Successfully cleared ${result.deleted_count} events`)
+      refetch()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to clear events')
+    }
+  }
+
   // Quick filter examples
   const quickFilters = [
     { label: 'Critical Events', query: 'event.severity:critical' },
@@ -437,6 +452,14 @@ export default function Events() {
               )}
             </p>
           </div>
+          <button
+            onClick={handleClearLogs}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={events.length === 0}
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Logs
+          </button>
         </div>
 
         {/* Results List */}

@@ -214,3 +214,6 @@ dump.rdb
 
 # Git merge files
 *.orig
+
+# Cursor IDE
+.cursorrules

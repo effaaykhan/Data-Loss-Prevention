@@ -6,7 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
 import Events from './pages/Events'
 import Alerts from './pages/Alerts'
-import Policies from './pages/Policies'
+import Policies from './app/dashboard/policies/page'
 import Settings from './pages/Settings'
 
 function App() {

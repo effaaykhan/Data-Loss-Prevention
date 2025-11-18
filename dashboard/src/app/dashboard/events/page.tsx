@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
-import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X, Shield, ArrowRight, File, HardDrive, ChevronDown, ChevronUp } from 'lucide-react'
-import { getEvents as fetchEvents, getEventStats } from '@/lib/api'
+import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X, Shield, ArrowRight, File, HardDrive, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { getEvents as fetchEvents, getEventStats, clearAllEvents } from '@/lib/api'
 import { formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -385,6 +385,21 @@ export default function EventsPage() {
     toast.success('Events exported successfully!')
   }
 
+  const handleClearLogs = async () => {
+    if (!confirm('Are you sure you want to clear all events? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const result = await clearAllEvents()
+      toast.success(`Successfully cleared ${result.deleted_count} events`)
+      refetch()
+      refetchStats()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to clear events')
+    }
+  }
+
   // Helper function to format file size
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes'
@@ -449,6 +464,14 @@ export default function EventsPage() {
             >
               <Download className="w-5 h-5" />
               Export Events
+            </button>
+            <button
+              onClick={handleClearLogs}
+              className="flex items-center gap-2 bg-gradient-to-r from-red-600 to-red-700 text-white px-6 py-3 rounded-xl hover:from-red-700 hover:to-red-800 shadow-lg hover:shadow-xl transition-all"
+              disabled={events.length === 0}
+            >
+              <Trash2 className="w-5 h-5" />
+              Clear Logs
             </button>
           </div>
         </div>

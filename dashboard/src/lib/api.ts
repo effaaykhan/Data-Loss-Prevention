@@ -97,6 +97,11 @@ export const searchEvents = async (params?: any) => {
   return data
 }
 
+export const clearAllEvents = async () => {
+  const { data } = await apiClient.delete('/events/clear')
+  return data
+}
+
 // Type exports
 export type Agent = {
   id?: string

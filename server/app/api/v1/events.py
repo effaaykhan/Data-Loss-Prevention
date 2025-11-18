@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel, Field
 import structlog
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_role
 from app.core.database import get_mongodb
 
 logger = structlog.get_logger()
@@ -307,3 +307,56 @@ async def get_events_by_severity(
         {"severity": item["_id"] or "unknown", "count": item["count"]}
         for item in severity_stats
     ]
+
+
+@router.delete("/clear", status_code=status.HTTP_200_OK)
+async def clear_all_events(
+    current_user = Depends(require_role("admin")),
+):
+    """
+    Clear all events from MongoDB (admin only)
+    
+    This endpoint deletes all events from the dlp_events collection.
+    Use with caution as this action cannot be undone.
+    """
+    db = get_mongodb()
+    events_collection = db["dlp_events"]
+    
+    try:
+        # Get count before deletion
+        before_count = await events_collection.count_documents({})
+        
+        # Delete all events
+        result = await events_collection.delete_many({})
+        deleted_count = result.deleted_count
+        
+        # Get count after deletion
+        after_count = await events_collection.count_documents({})
+        
+        # Access user email - require_role returns User object
+        user_email = getattr(current_user, "email", "unknown")
+        
+        logger.info(
+            "All events cleared",
+            user=user_email,
+            deleted_count=deleted_count,
+            before_count=before_count,
+            after_count=after_count,
+        )
+        
+        return {
+            "status": "success",
+            "message": "All events cleared successfully",
+            "deleted_count": deleted_count,
+            "before_count": before_count,
+            "after_count": after_count,
+        }
+        
+    except Exception as e:
+        # Access user email - require_role returns User object
+        user_email = getattr(current_user, "email", "unknown")
+        logger.error("Failed to clear events", error=str(e), user=user_email)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear events: {str(e)}"
+        )

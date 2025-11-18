@@ -6,6 +6,7 @@ JWT tokens, password hashing, OAuth2
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import uuid
+import enum
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -225,8 +226,13 @@ def require_role(required_role: str):
         # Role hierarchy: ADMIN > ANALYST > VIEWER
         role_hierarchy = {"ADMIN": 3, "ANALYST": 2, "VIEWER": 1}
         
-        # Convert role to string if it's an enum
-        user_role_str = str(user_role) if hasattr(user_role, 'value') else user_role
+        # Convert role to string - handle enum properly
+        # UserRole enum has .value attribute that returns the string value
+        if isinstance(user_role, enum.Enum):
+            user_role_str = user_role.value
+        else:
+            user_role_str = str(user_role)
+        
         required_role_str = required_role.upper() if isinstance(required_role, str) else str(required_role)
 
         user_level = role_hierarchy.get(user_role_str, 0)
