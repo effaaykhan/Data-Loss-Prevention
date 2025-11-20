@@ -8,7 +8,7 @@ import {
   FileSystemConfig, 
   USBDeviceConfig, 
   USBTransferConfig 
-} from '@/mocks/mockPolicies'
+} from '@/types/policy'
 import { validatePolicy } from '@/utils/policyUtils'
 import PolicyTypeSelector from './PolicyTypeSelector'
 import ClipboardPolicyForm from './ClipboardPolicyForm'

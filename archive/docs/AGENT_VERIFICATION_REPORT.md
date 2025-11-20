@@ -439,7 +439,7 @@ pyudev==0.24.0   # USB monitoring (Linux only)
 └─────────────────────────────────────────────────────────┘
 
 1. Startup
-   ├── Load configuration (agent.yml)
+   ├── Load configuration (agent_config.json)
    ├── Auto-register with server (if not registered)
    │   POST /api/v1/agents/register
    │   └── Receive: agent_id, registration_key

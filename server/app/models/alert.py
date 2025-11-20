@@ -28,7 +28,7 @@ class Alert(Base):
     message = Column(Text, nullable=True)
 
     # Source information
-    source = Column(String(100), nullable=False)  # event, system, policy_engine, ml_classifier
+    source = Column(String(100), nullable=False)  # event, system, event_processor, ml_classifier
     source_id = Column(String(64), nullable=True)  # Related event_id, agent_id, etc.
 
     # Related entities

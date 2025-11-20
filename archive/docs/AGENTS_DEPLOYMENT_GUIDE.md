@@ -51,61 +51,57 @@ Get-Content "C:\ProgramData\CyberSentinel\agent.log" -Tail 20
 
 **Step 2: Create configuration file**
 ```bash
-sudo tee /etc/cybersentinel/agent.yml > /dev/null << 'EOF'
-agent:
-  id: ""
-  name: "$(hostname)"
-  manager_url: "http://192.168.60.135:55000"
-  registration_key: ""
-  heartbeat_interval: 60
-
-monitoring:
-  file_system:
-    enabled: true
-    paths:
-      - "/home/$(whoami)/Desktop"
-      - "/home/$(whoami)/Documents"
-      - "/home/$(whoami)/Downloads"
-    extensions:
-      - .pdf
-      - .docx
-      - .xlsx
-      - .txt
-      - .csv
-    exclude_patterns:
-      - "*/node_modules/*"
-      - "*/.git/*"
-
-  clipboard:
-    enabled: true
-    poll_interval: 2
-
-  usb:
-    enabled: true
-    poll_interval: 5
-
-  network:
-    enabled: false
-
-classification:
-  local:
-    enabled: true
-    patterns:
-      - credit_card
-      - ssn
-      - email
-
-performance:
-  max_events_per_minute: 100
-  max_event_size: 1048576
-  batch_size: 10
-  queue_size: 1000
-
-logging:
-  level: INFO
-  file: "/etc/cybersentinel/logs/agent.log"
-  max_size: 10485760
-  max_files: 5
+sudo tee /etc/cybersentinel/agent_config.json > /dev/null << 'EOF'
+{
+  "server_url": "http://192.168.60.135:55000/api/v1",
+  "agent_id": "",
+  "agent_name": "$(hostname)",
+  "heartbeat_interval": 30,
+  "monitoring": {
+    "file_system": true,
+    "monitored_paths": [
+      "/home/$(whoami)/Documents",
+      "/home/$(whoami)/Desktop",
+      "/home/$(whoami)/Downloads"
+    ],
+    "file_extensions": [
+      ".pdf",
+      ".docx",
+      ".xlsx",
+      ".txt",
+      ".csv"
+    ],
+    "exclude_paths": [
+      "*/node_modules/*",
+      "*/.git/*"
+    ]
+  },
+  "monitoring_options": {
+    "clipboard": true,
+    "usb_devices": true
+  },
+  "classification": {
+    "enabled": true,
+    "max_file_size_mb": 10,
+    "patterns": [
+      "credit_card",
+      "ssn",
+      "email"
+    ]
+  },
+  "performance": {
+    "max_events_per_minute": 100,
+    "max_event_size": 1048576,
+    "batch_size": 10,
+    "queue_size": 1000
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "/var/log/cybersentinel_agent.log",
+    "max_size": 10485760,
+    "max_files": 5
+  }
+}
 EOF
 ```
 
@@ -121,8 +117,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/cybersentinel
 Environment="PYTHONUNBUFFERED=1"
-Environment="CYBERSENTINEL_CONFIG=/etc/cybersentinel/agent.yml"
-ExecStart=/usr/bin/python3 /opt/cybersentinel/linux/agent.py
+ExecStart=/usr/bin/python3 /opt/cybersentinel/agent.py
 Restart=always
 RestartSec=10
 
@@ -213,7 +208,7 @@ Start-ScheduledTask -TaskName "CyberSentinelAgent"
 sudo journalctl -u cybersentinel-agent -n 50
 
 # Test manual run
-sudo python3 /opt/cybersentinel/linux/agent.py
+sudo python3 /opt/cybersentinel/agent.py
 ```
 
 **Dependencies missing:**
@@ -226,7 +221,7 @@ sudo python3 -m pip install --break-system-packages -r requirements.txt
 **Config file issues:**
 ```bash
 # Verify config syntax
-sudo cat /etc/cybersentinel/agent.yml
+sudo cat /etc/cybersentinel/agent_config.json
 ```
 
 ### Connection Issues
@@ -321,36 +316,47 @@ echo "4532-1234-5678-9010" > ~/Desktop/test-cc.txt
 
 ### Change Monitored Paths
 
-**Windows:** Edit `C:\ProgramData\CyberSentinel\agent.yml`
-**Linux:** Edit `/etc/cybersentinel/agent.yml`
+**Windows:** Edit `C:\ProgramData\CyberSentinel\agent_config.json`
+**Linux:** Edit `/etc/cybersentinel/agent_config.json`
 
-```yaml
-monitoring:
-  file_system:
-    paths:
-      - "C:/Custom/Path"  # Windows
-      - "/custom/path"    # Linux
+```json
+{
+  "monitoring": {
+    "monitored_paths": [
+      "C:/Custom/Path",
+      "/custom/path"
+    ]
+  }
+}
 ```
 
 After editing, restart the agent.
 
 ### Adjust Sensitivity
 
-```yaml
-performance:
-  max_events_per_minute: 200  # Increase if needed
-  batch_size: 20              # Send more events per batch
+```json
+{
+  "performance": {
+    "max_events_per_minute": 200,
+    "batch_size": 20
+  }
+}
 ```
 
 ### Enable Network Monitoring (Advanced)
 
-```yaml
-monitoring:
-  network:
-    enabled: true
-    interfaces:
-      - eth0          # Linux
-      - "Ethernet"    # Windows
+```json
+{
+  "monitoring": {
+    "network": {
+      "enabled": true,
+      "interfaces": [
+        "eth0",
+        "Ethernet"
+      ]
+    }
+  }
+}
 ```
 
 ---
@@ -384,11 +390,11 @@ sudo systemctl daemon-reload
 
 ### Agent Locations
 - **Windows Install:** `C:\Program Files\CyberSentinel`
-- **Windows Config:** `C:\ProgramData\CyberSentinel\agent.yml`
+- **Windows Config:** `C:\ProgramData\CyberSentinel\agent_config.json`
 - **Windows Logs:** `C:\ProgramData\CyberSentinel\agent.log`
 - **Linux Install:** `/opt/cybersentinel`
-- **Linux Config:** `/etc/cybersentinel/agent.yml`
-- **Linux Logs:** `/etc/cybersentinel/logs/agent.log`
+- **Linux Config:** `/etc/cybersentinel/agent_config.json`
+- **Linux Logs:** `/var/log/cybersentinel_agent.log`
 
 ### Service Management
 

@@ -317,7 +317,7 @@
 - GDPR PII protection
 - HIPAA PHI protection
 
-**Location**: `policy-engine/evaluator/`, `config/policies/`
+**Location**: ~~`policy-engine/evaluator/`, `config/policies/`~~ (legacy YAML pipeline removed in Phase 5)
 
 ---
 

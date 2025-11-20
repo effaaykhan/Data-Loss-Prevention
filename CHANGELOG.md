@@ -8,6 +8,39 @@ This document details all changes, fixes, and improvements made during testing a
 
 ---
 
+## 🚀 Unified Policy Distribution & Cleanup (November 20, 2025)
+
+### Summary
+
+- **Total Files Modified:** 112
+- **Lines Changed:** +1,295 insertions / -35,281 deletions
+- **New Artifacts:** `.cursorrules`, `archive/`, `server/app/policies/`, `server/app/utils/policy_transformer.py`, `server/tests/test_agent_policy_transformer.py`, `dashboard/src/types/policy.ts`
+- **Removed Artifacts:** Legacy YAML configs, `policy_engine` module/tests, `agents/common/*`, deprecated Windows/Linux installers, and 40+ outdated documentation files
+
+### Highlights
+
+#### Unified Policy Schema + API
+- Added `type`, `severity`, and `config` columns to the `Policy` ORM plus Alembic migration, enabling storage of UI-native configurations.
+- Introduced `transform_frontend_config_to_backend()` so create/update flows accept wizard output while preserving backend condition/action logic.
+- `/api/v1/policies` responses now include the new fields, enforce real `User` objects for auth, and expose a `/policies/stats/summary` endpoint with MongoDB-backed violation counts.
+
+#### Agent Policy Bundles
+- Created `AgentPolicyTransformer` and `/api/v1/agents/{id}/policies/sync`, caching bundles per platform/capability in Redis to minimize payload churn.
+- Agents register/report capability flags plus policy sync metadata (`policy_version`, `policy_sync_status`, `policy_last_synced_at`, `policy_sync_error`) so operators can verify rollout status from the dashboard.
+
+#### Windows & Linux Agent Runtime
+- Agents now fetch bundles on startup and at `policy_sync_interval`, restart filesystem observers when monitored paths change, and include policy context in file/clipboard/USB events.
+- USB transfer handling maps to per-policy actions (block/quarantine/log) and emits richer telemetry (source/destination paths, policy metadata, content snippets).
+- Heartbeats inherit policy version/sync metadata, while event payloads include `policy_version`, `source_path`, and truncated `content` for downstream evaluation.
+
+#### Event Pipeline Hardening
+- `EventProcessor` now plugs into the database-backed evaluator/action executor, attaches `matched_policies` and `policy_action_summaries`, and preserves clipboard text for policy checks.
+- Clipboard events automatically populate `clipboard_content`, and USB/file events carry additional metadata for evaluator rules.
+
+#### Frontend & Docs
+- `dashboard/src/lib/api.ts` hydrates auth tokens from persisted state and adds helpers for enable/disable/statistics calls; shared policy types live under `dashboard/src/types/policy.ts`.
+- `README.md`, `INSTALLATION_GUIDE.md`, and `TESTING_COMMANDS.md` reference the new policy workflow, while the obsolete documentation tree was moved into `archive/` or removed entirely to keep the repo lean.
+
 ## Summary
 
 - **Total Files Modified:** 53 files

@@ -17,6 +17,8 @@ Complete installation guide for CyberSentinel DLP Dashboard, Linux Agents, and W
 6. [Verification](#verification)
 7. [Troubleshooting](#troubleshooting)
 
+> **Documentation scope:** This guide plus `TESTING_COMMANDS.md`, `README.md`, and `plan.md` are the active docs. Historical or deprecated references now live under `archive/` for posterity.
+
 ---
 
 ## Prerequisites

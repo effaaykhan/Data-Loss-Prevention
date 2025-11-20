@@ -1,4 +1,4 @@
-import { Policy } from '@/mocks/mockPolicies'
+import { Policy } from '@/types/policy'
 import PolicyRow from './PolicyRow'
 import { Shield } from 'lucide-react'
 

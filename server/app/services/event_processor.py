@@ -9,6 +9,10 @@ import structlog
 import re
 import hashlib
 
+from app.policies.database_policy_evaluator import DatabasePolicyEvaluator
+from app.actions.action_executor import ActionExecutor
+from app.actions.action_types import ExecutionSummary
+
 logger = structlog.get_logger()
 
 
@@ -23,10 +27,16 @@ class EventProcessor:
     6. Action Execution
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        policy_evaluator: Optional[DatabasePolicyEvaluator] = None,
+        action_executor: Optional[ActionExecutor] = None,
+    ):
         self.validators = []
         self.enrichers = []
         self.classifiers = []
+        self.policy_evaluator = policy_evaluator or DatabasePolicyEvaluator()
+        self.action_executor = action_executor or ActionExecutor()
 
     async def process_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -157,6 +167,11 @@ class EventProcessor:
             # Ensure action
             if "action" not in evt:
                 evt["action"] = "logged"
+
+        # Preserve clipboard content field for clipboard events
+        if event.get("event", {}).get("type") == "clipboard":
+            if "clipboard_content" not in event and event.get("content"):
+                event["clipboard_content"] = event["content"]
 
         # Add tags if not present
         if "tags" not in event:
@@ -361,6 +376,9 @@ class EventProcessor:
             event["content_redacted"] = self._redact_content(content, patterns)
             event.pop("content", None)  # Remove original content
 
+            if event.get("event", {}).get("type") == "clipboard":
+                event.setdefault("clipboard_content", content)
+
         logger.debug("Event classified", event_id=event.get("event_id"), classifications_count=len(classifications))
         return event
 
@@ -380,41 +398,50 @@ class EventProcessor:
 
     async def evaluate_policies(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Evaluate event against DLP policies
-
-        This will be fully implemented when policy engine is complete.
-        For now, applies basic rules.
+        Evaluate event against database-backed DLP policies.
         """
-        # Check if event has classifications
-        classifications = event.get("classification", [])
+        matches = await self.policy_evaluator.evaluate_event(event)
 
-        if not classifications:
-            # No sensitive data, no policy actions needed
+        if not matches:
+            logger.debug("No policies matched event", event_id=event.get("event_id"))
             return event
 
-        # For now, apply simple rules based on classification
-        for classification in classifications:
-            if classification.get("label") in ["PAN", "SSN"]:
-                # Critical data - should be blocked/quarantined
-                event["policy"] = {
-                    "id": "policy-default-001",
-                    "name": "Critical Data Protection",
-                    "rule_id": "rule-001",
-                    "action": "block",
-                    "severity": "critical"
+        event.setdefault("matched_policies", [])
+        event.setdefault("policy_action_summaries", [])
+
+        for match in matches:
+            event["matched_policies"].append(
+                {
+                    "policy_id": match.policy_id,
+                    "policy_name": match.policy_name,
+                    "severity": match.severity,
+                    "priority": match.priority,
+                    "matched_rules": match.matched_rules,
                 }
+            )
 
-                # Mark as blocked
+            if not match.actions:
+                continue
+
+            summary: ExecutionSummary = await self.action_executor.execute_actions(
+                event,
+                match.actions,
+                policy_id=match.policy_id,
+                rule_id=match.rule_id,
+            )
+
+            event["policy_action_summaries"].append(summary.dict())
+
+            if summary.blocked:
                 event["blocked"] = True
+            if summary.quarantined:
+                event["quarantined"] = True
 
-                logger.warning(
-                    "Event blocked by policy",
-                    event_id=event.get("event_id"),
-                    policy="Critical Data Protection",
-                    classification=classification.get("label")
-                )
-
-        logger.debug("Policies evaluated", event_id=event.get("event_id"))
+        logger.info(
+            "Policies evaluated",
+            event_id=event.get("event_id"),
+            matched=len(matches),
+        )
         return event
 
     async def execute_actions(self, event: Dict[str, Any]) -> Dict[str, Any]:
@@ -427,25 +454,17 @@ class EventProcessor:
         - Sending alerts
         - Logging
         """
-        # Check if event should be blocked
+        if event.get("policy_action_summaries"):
+            # Actions already executed via DatabasePolicyEvaluator
+            return event
+
+        # Legacy fallback for events processed without evaluator
         if event.get("blocked"):
-            logger.info(
-                "Event action executed: BLOCK",
-                event_id=event.get("event_id")
-            )
-            # In production, this would trigger actual blocking on the agent
-
-        # Check if file should be quarantined
+            logger.info("Event remains blocked", event_id=event.get("event_id"))
         if event.get("quarantined"):
-            logger.info(
-                "Event action executed: QUARANTINE",
-                event_id=event.get("event_id")
-            )
-            # In production, this would move the file to quarantine
+            logger.info("Event remains quarantined", event_id=event.get("event_id"))
 
-        # Always log the event
-        logger.debug("Event action executed: LOG", event_id=event.get("event_id"))
-
+        logger.debug("No additional actions executed", event_id=event.get("event_id"))
         return event
 
     async def process_batch(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

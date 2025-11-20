@@ -204,7 +204,7 @@ docker-compose ps
 Review and customize the pre-configured policies:
 
 ```bash
-ls config/policies/
+# (legacy templates removed in Phase 5 – manage policies via dashboard/API)
 # - pci-dss-credit-card.yaml
 # - gdpr-pii-protection.yaml
 # - hipaa-phi-protection.yaml

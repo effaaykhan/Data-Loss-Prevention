@@ -6,7 +6,6 @@ from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import yaml
 
 from app.models.policy import Policy
 
@@ -84,6 +83,9 @@ class PolicyService:
         enabled: bool = True,
         priority: int = 100,
         compliance_tags: Optional[List[str]] = None,
+        type: Optional[str] = None,
+        severity: Optional[str] = None,
+        config: Optional[dict] = None,
     ) -> Policy:
         """
         Create a new DLP policy
@@ -122,6 +124,9 @@ class PolicyService:
             actions=actions,
             compliance_tags=compliance_tags or [],
             created_by=created_by,
+            type=type,
+            severity=severity,
+            config=config,
         )
 
         self.db.add(policy)
@@ -140,6 +145,9 @@ class PolicyService:
         enabled: Optional[bool] = None,
         priority: Optional[int] = None,
         compliance_tags: Optional[List[str]] = None,
+        type: Optional[str] = None,
+        severity: Optional[str] = None,
+        config: Optional[dict] = None,
     ) -> Optional[Policy]:
         """
         Update policy details
@@ -190,6 +198,15 @@ class PolicyService:
 
         if compliance_tags is not None:
             policy.compliance_tags = compliance_tags
+
+        if type is not None:
+            policy.type = type
+
+        if severity is not None:
+            policy.severity = severity
+
+        if config is not None:
+            policy.config = config
 
         policy.updated_at = datetime.utcnow()
 
@@ -289,6 +306,39 @@ class PolicyService:
         result = await self.db.execute(query)
         return result.scalar_one()
 
+    async def get_policy_stats(self) -> dict:
+        """
+        Get policy statistics summary
+
+        Returns:
+            Dictionary with total, active, inactive counts
+        """
+        from sqlalchemy import func
+
+        # Total policies
+        total_query = select(func.count(Policy.id))
+        total_result = await self.db.execute(total_query)
+        total = total_result.scalar_one()
+
+        # Active policies
+        active_query = select(func.count(Policy.id)).where(Policy.enabled == True)
+        active_result = await self.db.execute(active_query)
+        active = active_result.scalar_one()
+
+        # Inactive policies
+        inactive = total - active
+
+        # TODO: Add violations count when events are integrated
+        # For now, return 0
+        violations = 0
+
+        return {
+            "total": total,
+            "active": active,
+            "inactive": inactive,
+            "violations": violations,
+        }
+
     def _validate_policy_structure(self, conditions: dict, actions: dict) -> None:
         """
         Validate policy conditions and actions structure
@@ -350,44 +400,3 @@ class PolicyService:
         if not any(action in actions for action in valid_actions):
             raise ValueError(f"At least one action must be specified: {valid_actions}")
 
-    async def load_policy_from_yaml(self, yaml_content: str, created_by: str) -> Policy:
-        """
-        Load policy from YAML content
-
-        Args:
-            yaml_content: YAML policy definition
-            created_by: UUID of user creating the policy
-
-        Returns:
-            Created Policy object
-
-        Raises:
-            ValueError: If YAML is invalid or policy creation fails
-        """
-        try:
-            policy_data = yaml.safe_load(yaml_content)
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML: {str(e)}")
-
-        # Extract policy fields
-        name = policy_data.get("name")
-        description = policy_data.get("description", "")
-        enabled = policy_data.get("enabled", True)
-        priority = policy_data.get("priority", 100)
-        conditions = policy_data.get("conditions", {})
-        actions = policy_data.get("actions", {})
-        compliance_tags = policy_data.get("compliance_tags", [])
-
-        if not name:
-            raise ValueError("Policy must have a name")
-
-        return await self.create_policy(
-            name=name,
-            description=description,
-            conditions=conditions,
-            actions=actions,
-            created_by=created_by,
-            enabled=enabled,
-            priority=priority,
-            compliance_tags=compliance_tags,
-        )

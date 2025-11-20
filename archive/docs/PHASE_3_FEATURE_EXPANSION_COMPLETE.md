@@ -628,7 +628,7 @@ rules:
 ---
 
 **For implementation details, see:**
-- `config/policies/templates/README.md`
+- ~~`config/policies/templates/README.md`~~ (legacy YAML templates removed in Phase 5)
 - `DLP_HARDENING_ROADMAP.md`
 - `HARDENING_PROGRESS_REPORT.md`
 - `HARDENING_SESSION_2_SUMMARY.md`

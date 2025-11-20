@@ -3,6 +3,8 @@
 **Date:** November 15, 2025  
 **Purpose:** Manual testing of committed code from scratch
 
+> **Doc map:** Pair this runbook with `INSTALLATION_GUIDE.md` for setup. Anything not explicitly covered lives in `archive/docs/` as historical reference.
+
 ---
 
 ## Prerequisites Check
@@ -124,22 +126,62 @@ http://localhost:3000
 5. Should redirect to dashboard
 
 ### 3.2 Dashboard Overview Verification
-1. After login, verify dashboard shows:
-   - **Total Agents:** 0 (no agents registered yet)
-   - **Active Agents:** 0
-   - **Total Events:** 0
-   - **Critical Alerts:** 0
-2. Charts should be empty (no data yet)
+1. After login, verify dashboard loads without errors and cards populate. The exact counts depend on current DB state (e.g., during final QA we expect **Total Agents = 2**, **Active Agents = 2**, **Total Events ≈ 100+**, **Critical Alerts ≥ recent violations**). The key check is that numbers render and update as events/agents come online.
+2. Charts (Events Over Time / by Type / by Severity / DLP Actions) should render with whatever live data exists. If you initialized a brand-new database they will start at zero.
 
 ### 3.3 Navigate to Agents Page
 1. Click "Agents" in sidebar
-2. Should show empty list: "No agents found"
-3. This is expected - no agents running yet
+2. After the agents (Step 4/5) register you should see both Linux and Windows entries with live `last_seen`, IPs, and policy sync metadata.
 
 ### 3.4 Navigate to Events Page
 1. Click "Events" in sidebar
-2. Should show: "0 events found"
-3. This is expected - no events generated yet
+2. If you have not generated events yet it will say “0 events found”. With existing data, use `*` in the search bar and hit **Search** to list all records.
+3. Confirm the table renders and that clicking a row shows the right-hand drawer with policy match details.
+
+### 3.5 Backend API Smoke Tests
+Run these from another terminal (still inside the repo root) after services are up:
+
+```bash
+# 1) Obtain token (capture JSON)
+curl -i -X POST http://localhost:55000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin"
+
+# Convenience: store token in ENV for the shell session
+export TOKEN=$(curl -s -X POST http://localhost:55000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 2) Policy listing + stats
+curl -i http://localhost:55000/api/v1/policies/ -H "Authorization: Bearer $TOKEN"
+curl -i http://localhost:55000/api/v1/policies/stats/summary -H "Authorization: Bearer $TOKEN"
+
+# 3) CRUD smoke (creates temporary policy, updates it, toggles, then deletes)
+curl -i -X POST http://localhost:55000/api/v1/policies/ \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"CLI QA Policy","description":"temporary","priority":80,"type":"clipboard_monitoring","severity":"medium","enabled":true,"config":{"patterns":{"predefined":["email"],"custom":[]},"action":"alert"}}'
+
+# Replace POLICY_ID with the ID returned above
+curl -i -X PUT http://localhost:55000/api/v1/policies/POLICY_ID \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"CLI QA Policy","description":"updated","priority":70,"type":"clipboard_monitoring","severity":"high","enabled":false,"config":{"patterns":{"predefined":["email","api_key"],"custom":[]},"action":"alert"}}'
+
+curl -i -X POST http://localhost:55000/api/v1/policies/POLICY_ID/enable \
+  -H "Authorization: Bearer $TOKEN"
+curl -i -X POST http://localhost:55000/api/v1/policies/POLICY_ID/disable \
+  -H "Authorization: Bearer $TOKEN"
+curl -i -X DELETE http://localhost:55000/api/v1/policies/POLICY_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# 4) Event ingestion smoke
+curl -i -X POST http://localhost:55000/api/v1/events/ \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"qa-cli-001","agent_id":"cli-agent","agent_name":"CLI Agent","agent_type":"linux","agent_version":"1.0.0","event_type":"file","event_subtype":"file_created","severity":"medium","file_path":"/home/vansh/Code/Data-Loss-Prevention/tmp_linux_policy/final_ssn.txt","file_extension":".txt","content":"SSN: 123-45-6789","timestamp":"'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"}'
+
+curl -i "http://localhost:55000/api/v1/events/?limit=5" -H "Authorization: Bearer $TOKEN"
+```
+
+These steps confirm the policy transformer, stats endpoint, EventProcessor, and Mongo persistence are healthy before moving on to agent tests.
 
 ---
 

@@ -12,6 +12,7 @@ import structlog
 
 from app.core.security import get_current_user, require_role
 from app.core.database import get_mongodb
+from app.services.event_processor import get_event_processor
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -25,13 +26,18 @@ class EventCreate(BaseModel):
     agent_id: str = Field(..., description="Agent ID that detected the event")
     source_type: str = Field(default="endpoint", description="Source type")
     file_path: Optional[str] = Field(None, description="File path if applicable")
+    source_path: Optional[str] = Field(None, description="Original source path (for transfer/block policies)")
     classification: Optional[Dict[str, Any]] = Field(None, description="Classification data")
     action: Optional[str] = Field(None, description="Action taken (logged, blocked, alerted, etc.)")
     destination: Optional[str] = Field(None, description="Destination path for transfers")
+    destination_type: Optional[str] = Field(None, description="Destination type (e.g., removable_drive, network_share)")
+    content: Optional[str] = Field(None, description="Raw content captured (clipboard, file snippet, etc.)")
+    usb_event_type: Optional[str] = Field(None, description="USB event subtype (connect, disconnect, transfer)")
     blocked: Optional[bool] = Field(None, description="Whether action was blocked")
     event_subtype: Optional[str] = Field(None, description="Event subtype")
     description: Optional[str] = Field(None, description="Event description")
     user_email: Optional[str] = Field(None, description="User email")
+    policy_version: Optional[str] = Field(None, description="Agent policy bundle version when event was generated")
 
 
 class DLPEvent(BaseModel):
@@ -47,8 +53,14 @@ class DLPEvent(BaseModel):
     action_taken: str
     severity: str
     file_path: Optional[str]
+    source_path: Optional[str] = None
     destination: Optional[str]
+    destination_type: Optional[str] = None
     blocked: bool
+    content: Optional[str] = None
+    policy_version: Optional[str] = None
+    matched_policies: Optional[List[Dict[str, Any]]] = None
+    policy_action_summaries: Optional[List[Dict[str, Any]]] = None
 
 
 class EventsResponse(BaseModel):
@@ -77,23 +89,33 @@ async def create_event(
     db = get_mongodb()
     events_collection = db["dlp_events"]
 
+    processor = get_event_processor()
+    processed_event = await processor.process_event(_build_processor_payload(event))
+
     # Create event document
-    event_doc = {
+    event_doc: Dict[str, Any] = {
         "id": event.event_id,
         "timestamp": datetime.utcnow(),
         "event_type": event.event_type,
-        "severity": event.severity,
+        "severity": processed_event.get("event", {}).get("severity", event.severity),
         "agent_id": event.agent_id,
         "source": event.source_type,
         "source_type": event.source_type,
-        "user_email": event.user_email or "agent@system",  # Use agent-provided email or default
+        "user_email": event.user_email or "agent@system",
         "classification_score": 0.0,
         "classification_labels": [],
         "policy_id": None,
-        "action_taken": event.action or "logged",  # Use agent-provided action or default to "logged"
+        "action_taken": processed_event.get("event", {}).get("action", event.action or "logged"),
         "file_path": event.file_path,
-        "destination": event.destination,  # Use agent-provided destination
-        "blocked": event.blocked if event.blocked is not None else False,  # Use agent-provided blocked status
+        "source_path": event.source_path or event.file_path,
+        "destination": event.destination,
+        "destination_type": event.destination_type,
+        "clipboard_content": event.content if event.event_type.lower() == "clipboard" else None,
+        "blocked": processed_event.get("blocked", event.blocked if event.blocked is not None else False),
+        "quarantined": processed_event.get("quarantined", False),
+        "metadata": processed_event.get("metadata", {}),
+        "policy_version": processed_event.get("policy_version", event.policy_version),
+        "content": event.content,
     }
     
     # Add optional fields if provided
@@ -102,9 +124,8 @@ async def create_event(
     if event.description:
         event_doc["description"] = event.description
 
-    # Add classification data if provided
-    if event.classification:
-        event_doc["classification"] = event.classification
+    # Merge processed event data
+    _merge_processed_event(event_doc, processed_event)
 
     # Insert into database
     await events_collection.insert_one(event_doc)
@@ -119,6 +140,115 @@ async def create_event(
         blocked=event_doc.get("blocked")
     )
     return {"status": "success", "event_id": event.event_id}
+
+
+def _build_processor_payload(event: EventCreate) -> Dict[str, Any]:
+    """
+    Convert the agent-supplied event payload into the richer structure used by the EventProcessor.
+    """
+    payload: Dict[str, Any] = {
+        "event_id": event.event_id,
+        "agent": {
+            "id": event.agent_id,
+            "name": event.agent_id,
+        },
+        "event": {
+            "type": event.event_type,
+            "severity": event.severity,
+            "source_type": event.source_type,
+            "action": event.action or "logged",
+        },
+        "metadata": {
+            "ingest_source": "api",
+        },
+        "tags": [],
+    }
+
+    if event.user_email:
+        payload.setdefault("user", {})["email"] = event.user_email
+
+    if event.file_path:
+        payload.setdefault("file", {})["path"] = event.file_path
+    if event.source_path or event.file_path:
+        source_path = event.source_path or event.file_path
+        payload["source_path"] = source_path
+        payload.setdefault("file", {})["source_path"] = source_path
+
+    if event.destination:
+        payload.setdefault("destination", {})["path"] = event.destination
+
+    if event.destination_type:
+        payload["destination_type"] = event.destination_type
+        payload.setdefault("destination", {})["type"] = event.destination_type
+
+    if event.classification:
+        payload["classification"] = event.classification
+
+    if event.content:
+        payload["content"] = event.content
+        payload["clipboard_content"] = event.content
+    elif event.description and event.event_type.lower() == "clipboard":
+        payload["clipboard_content"] = event.description
+
+    if event.event_subtype:
+        payload["event"]["subtype"] = event.event_subtype
+
+    if event.usb_event_type:
+        payload.setdefault("usb", {})["event_type"] = event.usb_event_type
+
+    if event.blocked is not None:
+        payload["blocked"] = event.blocked
+
+    if event.description:
+        payload["description"] = event.description
+
+    if event.policy_version:
+        payload["policy_version"] = event.policy_version
+
+    return payload
+
+
+def _merge_processed_event(event_doc: Dict[str, Any], processed_event: Dict[str, Any]) -> None:
+    """
+    Merge classification results, policy matches, and action summaries from the EventProcessor output.
+    """
+    classification = processed_event.get("classification")
+    if classification:
+        event_doc["classification"] = classification
+        labels = [cls.get("label") for cls in classification if isinstance(cls, dict) and cls.get("label")]
+        event_doc["classification_labels"] = labels
+        confidences = [cls.get("confidence", 0.0) for cls in classification if isinstance(cls, dict)]
+        if confidences:
+            event_doc["classification_score"] = max(confidences)
+
+    matched_policies = processed_event.get("matched_policies")
+    if matched_policies:
+        event_doc["matched_policies"] = matched_policies
+        if not event_doc.get("policy_id"):
+            event_doc["policy_id"] = matched_policies[0].get("policy_id")
+
+    action_summaries = processed_event.get("policy_action_summaries")
+    if action_summaries:
+        event_doc["policy_action_summaries"] = action_summaries
+
+    if "blocked" in processed_event:
+        event_doc["blocked"] = processed_event["blocked"]
+
+    if "quarantined" in processed_event:
+        event_doc["quarantined"] = processed_event["quarantined"]
+
+    if processed_event.get("content_redacted"):
+        event_doc["content_redacted"] = processed_event["content_redacted"]
+
+    if processed_event.get("tags"):
+        event_doc["tags"] = processed_event["tags"]
+
+    if processed_event.get("clipboard_content"):
+        event_doc["clipboard_content"] = processed_event["clipboard_content"]
+
+    processor_event = processed_event.get("event", {})
+    if processor_event.get("action"):
+        event_doc["action_taken"] = processor_event["action"]
 
 
 @router.get("/", response_model=EventsResponse)
@@ -187,8 +317,24 @@ async def get_events(
             event_dict["policy_id"] = None
         if "file_path" not in event_dict:
             event_dict["file_path"] = None
+        if "source_path" not in event_dict:
+            event_dict["source_path"] = event_dict.get("file_path")
         if "destination" not in event_dict:
             event_dict["destination"] = None
+        if "destination_type" not in event_dict:
+            event_dict["destination_type"] = event_dict.get("destination_type", None)
+        if "source" not in event_dict:
+            event_dict["source"] = event_dict.get("source_type", "unknown")
+        if "user_email" not in event_dict or event_dict["user_email"] is None:
+            event_dict["user_email"] = "agent@system"
+        if "action_taken" not in event_dict or event_dict["action_taken"] is None:
+            event_dict["action_taken"] = "logged"
+        if "blocked" not in event_dict or event_dict["blocked"] is None:
+            event_dict["blocked"] = False
+        if "content" not in event_dict:
+            event_dict["content"] = None
+        if "policy_version" not in event_dict:
+            event_dict["policy_version"] = None
 
         events.append(event_dict)
 

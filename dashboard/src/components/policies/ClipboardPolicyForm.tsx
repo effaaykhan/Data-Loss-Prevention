@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ClipboardConfig } from '@/mocks/mockPolicies'
+import { ClipboardConfig } from '@/types/policy'
 import { predefinedPatterns, validateRegex, testRegex } from '@/utils/policyUtils'
 import { Check, X, Plus, Trash2 } from 'lucide-react'
 

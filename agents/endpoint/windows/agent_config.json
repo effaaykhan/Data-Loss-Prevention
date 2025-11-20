@@ -3,6 +3,7 @@
   "agent_id": "windows-agent-001",
   "agent_name": "Windows-Agent",
   "heartbeat_interval": 30,
+  "policy_sync_interval": 300,
   "monitoring": {
     "file_system": true,
     "clipboard": true,

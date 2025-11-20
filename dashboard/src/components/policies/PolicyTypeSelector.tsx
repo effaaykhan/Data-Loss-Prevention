@@ -1,6 +1,6 @@
 'use client'
 
-import { PolicyType } from '@/mocks/mockPolicies'
+import { PolicyType } from '@/types/policy'
 import { Clipboard, FileText, Usb, HardDrive } from 'lucide-react'
 
 interface PolicyTypeSelectorProps {

@@ -142,14 +142,19 @@ All events are sent to the manager at `http://192.168.60.135:55000`
 
 ### Windows
 ```powershell
-cd "C:\Users\Red Ghost\Desktop\cybersentinel-dlp\agents\windows"
-.\install.ps1 -Uninstall
+Stop-Process -Name CyberSentinelAgent -Force -ErrorAction SilentlyContinue
+Remove-Item "C:\Program Files\CyberSentinel" -Recurse -Force
+Remove-Item "C:\ProgramData\CyberSentinel\agent_config.json" -Force -ErrorAction SilentlyContinue
 ```
 
 ### Linux
 ```bash
-cd "/mnt/c/Users/Red Ghost/Desktop/cybersentinel-dlp/agents/linux"
-sudo bash install.sh --uninstall
+sudo systemctl stop cybersentinel-agent
+sudo systemctl disable cybersentinel-agent
+sudo rm /etc/systemd/system/cybersentinel-agent.service
+sudo rm -rf /opt/cybersentinel
+sudo rm -f /etc/cybersentinel/agent_config.json
+sudo systemctl daemon-reload
 ```
 
 ---
@@ -157,10 +162,10 @@ sudo bash install.sh --uninstall
 ## Configuration
 
 ### Windows
-Edit: `C:\ProgramData\CyberSentinel\agent.yml`
+Edit: `C:\ProgramData\CyberSentinel\agent_config.json`
 
 ### Linux
-Edit: `/etc/cybersentinel/agent.yml`
+Edit: `/etc/cybersentinel/agent_config.json`
 
 After editing, restart the agent.
 

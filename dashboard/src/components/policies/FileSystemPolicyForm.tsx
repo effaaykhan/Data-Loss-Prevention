@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FileSystemConfig } from '@/mocks/mockPolicies'
+import { FileSystemConfig } from '@/types/policy'
 import { Plus, Trash2, X } from 'lucide-react'
 
 interface FileSystemPolicyFormProps {

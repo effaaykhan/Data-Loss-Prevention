@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X, ChevronDown, ChevronUp } from 'lucide-react'
-import { Policy } from '@/mocks/mockPolicies'
+import { Policy } from '@/types/policy'
 import { getPolicyTypeIcon, getPolicyTypeLabel, getSeverityColorLight } from '@/utils/policyUtils'
 
 interface PolicyDetailsModalProps {

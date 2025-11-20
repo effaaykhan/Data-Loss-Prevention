@@ -4,7 +4,7 @@ Create, update, and manage DLP policies
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.core.security import get_current_user, require_role
-from app.core.database import get_db
+from app.core.database import get_db, get_mongodb
 from app.services.policy_service import PolicyService
+from app.utils.policy_transformer import transform_frontend_config_to_backend
+from app.models.user import User
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -49,8 +51,13 @@ class Policy(BaseModel):
     description: str
     enabled: bool = True
     priority: int = 100
-    conditions: List[PolicyCondition]
-    actions: List[PolicyAction]
+    # Frontend format fields (Option B: Extend Database)
+    type: Optional[str] = None  # 'clipboard_monitoring', 'file_system_monitoring', etc.
+    severity: Optional[str] = None  # 'low', 'medium', 'high', 'critical'
+    config: Optional[Dict[str, Any]] = None  # Frontend config format (type-specific)
+    # Backend format fields (existing, optional for frontend compatibility)
+    conditions: Optional[List[PolicyCondition]] = []
+    actions: Optional[List[PolicyAction]] = []
     compliance_tags: List[str] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -62,7 +69,7 @@ async def get_policies(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     enabled_only: bool = False,
-    current_user: dict = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -82,6 +89,11 @@ async def get_policies(
             "description": policy.description,
             "enabled": policy.enabled,
             "priority": policy.priority,
+            # Frontend format fields
+            "type": policy.type,
+            "severity": policy.severity,
+            "config": policy.config,
+            # Backend format fields
             # Internally we store a JSON blob with "match" + "rules".
             # Expose only the rules list to the API.
             "conditions": policy.conditions.get("rules", [])
@@ -97,7 +109,7 @@ async def get_policies(
             "compliance_tags": policy.compliance_tags or [],
             "created_at": policy.created_at,
             "updated_at": policy.updated_at,
-            "created_by": policy.created_by,
+            "created_by": str(policy.created_by) if policy.created_by else None,
         }
         for policy in policies
     ]
@@ -106,7 +118,7 @@ async def get_policies(
 @router.get("/{policy_id}", response_model=Policy)
 async def get_policy(
     policy_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -126,6 +138,11 @@ async def get_policy(
         "description": policy.description,
         "enabled": policy.enabled,
         "priority": policy.priority,
+        # Frontend format fields
+        "type": policy.type,
+        "severity": policy.severity,
+        "config": policy.config,
+        # Backend format fields
         "conditions": policy.conditions.get("rules", [])
         if isinstance(policy.conditions, dict)
         else [],
@@ -137,14 +154,14 @@ async def get_policy(
         "compliance_tags": policy.compliance_tags or [],
         "created_at": policy.created_at,
         "updated_at": policy.updated_at,
-        "created_by": policy.created_by,
+        "created_by": str(policy.created_by) if policy.created_by else None,
     }
 
 
 @router.post("/", response_model=Policy, status_code=status.HTTP_201_CREATED)
 async def create_policy(
     policy: Policy,
-    current_user: dict = Depends(require_role("analyst")),
+    current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -152,12 +169,19 @@ async def create_policy(
     """
     policy_service = PolicyService(db)
 
-    # Convert Pydantic models to dict format expected by service
-    conditions_dict = {
-        "match": "all",
-        "rules": [cond.dict() for cond in policy.conditions]
-    }
-    actions_dict = {action.type: action.parameters for action in policy.actions}
+    # Transform frontend config to backend conditions/actions if config is provided
+    if policy.config and policy.type:
+        conditions_dict, actions_dict = transform_frontend_config_to_backend(
+            policy.type, policy.config
+        )
+    else:
+        # Fallback: Convert Pydantic models to dict format expected by service
+        # If conditions/actions not provided, use empty defaults
+        conditions_dict = {
+            "match": "all",
+            "rules": [cond.dict() for cond in (policy.conditions or [])]
+        }
+        actions_dict = {action.type: action.parameters for action in (policy.actions or [])}
 
     try:
         created_policy = await policy_service.create_policy(
@@ -165,17 +189,20 @@ async def create_policy(
             description=policy.description,
             conditions=conditions_dict,
             actions=actions_dict,
-            created_by=current_user["sub"],
+            created_by=str(current_user.id),
             enabled=policy.enabled,
             priority=policy.priority,
             compliance_tags=policy.compliance_tags,
+            type=policy.type,
+            severity=policy.severity,
+            config=policy.config,
         )
 
         logger.info(
             "Policy created",
             policy_name=policy.name,
             policy_id=str(created_policy.id),
-            user=current_user["email"],
+            user=current_user.email,
         )
 
         return {
@@ -184,12 +211,15 @@ async def create_policy(
             "description": created_policy.description,
             "enabled": created_policy.enabled,
             "priority": created_policy.priority,
-            "conditions": policy.conditions,
-            "actions": policy.actions,
+            "type": created_policy.type,
+            "severity": created_policy.severity,
+            "config": created_policy.config,
+            "conditions": policy.conditions or [],
+            "actions": policy.actions or [],
             "compliance_tags": created_policy.compliance_tags or [],
             "created_at": created_policy.created_at,
             "updated_at": created_policy.updated_at,
-            "created_by": created_policy.created_by,
+            "created_by": str(created_policy.created_by) if created_policy.created_by else None,
         }
 
     except ValueError as e:
@@ -200,7 +230,7 @@ async def create_policy(
 async def update_policy(
     policy_id: str,
     policy: Policy,
-    current_user: dict = Depends(require_role("analyst")),
+    current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -208,12 +238,19 @@ async def update_policy(
     """
     policy_service = PolicyService(db)
 
-    # Convert Pydantic models to dict format
-    conditions_dict = {
-        "match": "all",
-        "rules": [cond.dict() for cond in policy.conditions]
-    }
-    actions_dict = {action.type: action.parameters for action in policy.actions}
+    # Transform frontend config to backend conditions/actions if config is provided
+    if policy.config and policy.type:
+        conditions_dict, actions_dict = transform_frontend_config_to_backend(
+            policy.type, policy.config
+        )
+    else:
+        # Fallback: Convert Pydantic models to dict format
+        # If conditions/actions not provided, use empty defaults
+        conditions_dict = {
+            "match": "all",
+            "rules": [cond.dict() for cond in (policy.conditions or [])]
+        }
+        actions_dict = {action.type: action.parameters for action in (policy.actions or [])}
 
     try:
         updated_policy = await policy_service.update_policy(
@@ -225,6 +262,9 @@ async def update_policy(
             enabled=policy.enabled,
             priority=policy.priority,
             compliance_tags=policy.compliance_tags,
+            type=policy.type,
+            severity=policy.severity,
+            config=policy.config,
         )
 
         if not updated_policy:
@@ -233,7 +273,7 @@ async def update_policy(
         logger.info(
             "Policy updated",
             policy_id=policy_id,
-            user=current_user["email"],
+            user=current_user.email,
         )
 
         return {
@@ -242,12 +282,15 @@ async def update_policy(
             "description": updated_policy.description,
             "enabled": updated_policy.enabled,
             "priority": updated_policy.priority,
-            "conditions": policy.conditions,
-            "actions": policy.actions,
+            "type": updated_policy.type,
+            "severity": updated_policy.severity,
+            "config": updated_policy.config,
+            "conditions": policy.conditions or [],
+            "actions": policy.actions or [],
             "compliance_tags": updated_policy.compliance_tags or [],
             "created_at": updated_policy.created_at,
             "updated_at": updated_policy.updated_at,
-            "created_by": updated_policy.created_by,
+            "created_by": str(updated_policy.created_by) if updated_policy.created_by else None,
         }
 
     except ValueError as e:
@@ -257,7 +300,7 @@ async def update_policy(
 @router.delete("/{policy_id}")
 async def delete_policy(
     policy_id: str,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -272,7 +315,7 @@ async def delete_policy(
     logger.info(
         "Policy deleted",
         policy_id=policy_id,
-        user=current_user["email"],
+        user=current_user.email,
     )
 
     return {"message": "Policy deleted successfully"}
@@ -281,7 +324,7 @@ async def delete_policy(
 @router.post("/{policy_id}/enable")
 async def enable_policy(
     policy_id: str,
-    current_user: dict = Depends(require_role("analyst")),
+    current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -296,7 +339,7 @@ async def enable_policy(
     logger.info(
         "Policy enabled",
         policy_id=policy_id,
-        user=current_user["email"],
+        user=current_user.email,
     )
 
     return {"message": "Policy enabled successfully", "policy_id": str(policy.id)}
@@ -305,7 +348,7 @@ async def enable_policy(
 @router.post("/{policy_id}/disable")
 async def disable_policy(
     policy_id: str,
-    current_user: dict = Depends(require_role("analyst")),
+    current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -320,7 +363,33 @@ async def disable_policy(
     logger.info(
         "Policy disabled",
         policy_id=policy_id,
-        user=current_user["email"],
+        user=current_user.email,
     )
 
     return {"message": "Policy disabled successfully", "policy_id": str(policy.id)}
+
+
+@router.get("/stats/summary")
+async def get_policy_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get policy statistics summary
+    Returns total, active, inactive, and violations counts
+    """
+    policy_service = PolicyService(db)
+    stats = await policy_service.get_policy_stats()
+
+    # Augment violations count using MongoDB events (last 24 hours)
+    mongo = get_mongodb()
+    lookback = datetime.utcnow() - timedelta(hours=24)
+    violations = await mongo.dlp_events.count_documents(
+        {
+            "blocked": True,
+            "timestamp": {"$gte": lookback},
+        }
+    )
+    stats["violations"] = violations
+
+    return stats

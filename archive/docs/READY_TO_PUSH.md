@@ -263,12 +263,10 @@ Create `.github/workflows/ci.yml` for automated testing:
 cybersentinel-dlp/
 ├── .github/               # GitHub templates (ready for CI/CD)
 ├── agents/                # Cross-platform DLP agents
-│   ├── common/           # Shared agent code
-│   ├── windows/          # Windows-specific implementation
-│   └── linux/            # Linux-specific implementation
-├── config/                # YAML configuration templates
-│   ├── manager.yml.example
-│   └── agent.yml.example
+│   └── endpoint/         # Production agents
+│       ├── windows/      # Windows-specific implementation
+│       └── linux/        # Linux-specific implementation
+├── config/                # Environment templates
 ├── dashboard/             # React TypeScript dashboard
 │   ├── src/              # Source code
 │   ├── Dockerfile.prod   # Production build

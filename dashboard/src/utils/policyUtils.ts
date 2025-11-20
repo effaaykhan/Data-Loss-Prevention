@@ -5,12 +5,13 @@
 
 import { 
   Policy, 
-  PolicyType, 
+  PolicyType,
+  PolicySeverity,
   ClipboardConfig, 
   FileSystemConfig, 
   USBDeviceConfig, 
   USBTransferConfig 
-} from '@/mocks/mockPolicies'
+} from '@/types/policy'
 import { Clipboard, FileText, Usb, HardDrive } from 'lucide-react'
 
 /**
@@ -263,6 +264,64 @@ export const getSeverityColorLight = (severity: string): {
         icon: 'text-gray-600',
         badge: 'badge-info'
       }
+  }
+}
+
+/**
+ * Transform API policy response to frontend Policy format
+ */
+export const transformApiPolicyToFrontend = (apiPolicy: any): Policy => {
+  return {
+    id: apiPolicy.id || '',
+    name: apiPolicy.name || '',
+    description: apiPolicy.description || '',
+    type: apiPolicy.type as PolicyType,
+    enabled: apiPolicy.enabled ?? true,
+    severity: (apiPolicy.severity || 'medium') as PolicySeverity,
+    priority: apiPolicy.priority || 100,
+    createdAt: apiPolicy.created_at || new Date().toISOString(),
+    updatedAt: apiPolicy.updated_at || new Date().toISOString(),
+    createdBy: apiPolicy.created_by || undefined,
+    violations: 0, // TODO: Get from stats endpoint
+    lastViolation: undefined, // TODO: Get from stats endpoint
+    config: apiPolicy.config || getDefaultConfig(apiPolicy.type as PolicyType),
+  }
+}
+
+/**
+ * Transform frontend Policy format to API request format
+ */
+export const transformFrontendPolicyToApi = (policy: Partial<Policy>): any => {
+  return {
+    name: policy.name || '',
+    description: policy.description || '',
+    type: policy.type,
+    severity: policy.severity || 'medium',
+    priority: policy.priority || 100,
+    enabled: policy.enabled ?? true,
+    config: policy.config,
+    // Backend format (empty for now, will be transformed from config later)
+    conditions: [],
+    actions: [],
+    compliance_tags: [],
+  }
+}
+
+/**
+ * Get default config for policy type (helper for transformation)
+ */
+const getDefaultConfig = (type: PolicyType): any => {
+  switch (type) {
+    case 'clipboard_monitoring':
+      return { patterns: { predefined: [], custom: [] }, action: 'alert' }
+    case 'file_system_monitoring':
+      return { monitoredPaths: [], events: { create: false, modify: false, delete: false, move: false, copy: false }, action: 'alert' }
+    case 'usb_device_monitoring':
+      return { events: { connect: false, disconnect: false, fileTransfer: false }, action: 'alert' }
+    case 'usb_file_transfer_monitoring':
+      return { monitoredPaths: [], action: 'block' }
+    default:
+      return {}
   }
 }
 

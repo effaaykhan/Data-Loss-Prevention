@@ -114,13 +114,13 @@ A flexible, powerful policy evaluation engine:
 - **Compliance Tags**: Built-in compliance tagging (GDPR, HIPAA, PCI-DSS, SOX)
 
 **Example Policies**:
-- `config/policies/pci-dss-credit-card.yaml` - Block credit card exfiltration
-- `config/policies/gdpr-pii-protection.yaml` - Protect personal information
-- `config/policies/hipaa-phi-protection.yaml` - Protect health information
+- ~~`config/policies/pci-dss-credit-card.yaml`~~ (legacy YAML template removed; use DB policies)
+- ~~`config/policies/gdpr-pii-protection.yaml`~~ (legacy YAML template removed; use DB policies)
+- ~~`config/policies/hipaa-phi-protection.yaml`~~ (legacy YAML template removed; use DB policies)
 
 **Key Files**:
 - `policy-engine/evaluator/policy_evaluator.py` - Policy evaluation engine
-- `config/policies/` - Example policy definitions
+- ~~`config/policies/`~~ (legacy YAML directory removed in Phase 5)
 
 ### 5. ML-Based Classifier
 

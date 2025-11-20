@@ -304,209 +304,90 @@ docker-compose up -d --build
 
 Agents monitor endpoints and send events to the DLP server.
 
-### Windows Agent
+### Windows Agent (Endpoint)
 
-**Quick Installation:**
+The production-ready Windows endpoint agent lives in `agents/endpoint/windows/agent.py` and uses `agent_config.json` for all settings.
 
-```powershell
-# Run as Administrator
-# Download and install in one command
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/effaaykhan/cybersentinel-dlp/main/agents/windows/install.ps1" -OutFile "install.ps1"
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\install.ps1 -ManagerUrl "https://your-server.com:8000"
-```
-
-**Manual Installation:**
+**Quick Installation**
 
 ```powershell
-# 1. Install Python 3.8+ (if not already installed)
-# Download from: https://www.python.org/downloads/
-
-# 2. Clone the repository
-git clone https://github.com/effaaykhan/cybersentinel-dlp.git
-cd cybersentinel-dlp/agents
-
-# 3. Install dependencies
+# 1. Install dependencies
+cd agents\endpoint\windows
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 
-# 4. Create configuration
-New-Item -Path "C:\ProgramData\CyberSentinel" -ItemType Directory -Force
-@"
-agent:
-  name: HOSTNAME
-  manager_url: https://your-server.com:8000
-  heartbeat_interval: 60
+# 2. Configure server + monitoring paths
+Copy-Item agent_config.json C:\ProgramData\CyberSentinel\agent_config.json -Force
+notepad C:\ProgramData\CyberSentinel\agent_config.json
 
-monitoring:
-  file_system:
-    enabled: true
-    paths:
-      - C:/Users/%USERNAME%/Desktop
-      - C:/Users/%USERNAME%/Documents
-      - C:/Users/%USERNAME%/Downloads
-    extensions:
-      - .pdf
-      - .docx
-      - .xlsx
-      - .txt
-      - .csv
-
-  clipboard:
-    enabled: true
-
-  usb:
-    enabled: true
-
-performance:
-  max_events_per_minute: 100
-  batch_size: 10
-"@ | Out-File -FilePath "C:\ProgramData\CyberSentinel\agent.yml"
-
-# 5. Run the agent
-cd windows
+# 3. Run the agent
 python agent.py
 ```
 
-**Install as Windows Service:**
+**Install as Windows Service (NSSM)**
 
 ```powershell
-# Using NSSM (Non-Sucking Service Manager)
 choco install nssm -y
-
-# Create service
-nssm install CyberSentinelAgent "C:\Python3\python.exe" "C:\cybersentinel-dlp\agents\windows\agent.py"
-nssm set CyberSentinelAgent AppDirectory "C:\cybersentinel-dlp\agents"
-nssm set CyberSentinelAgent DisplayName "CyberSentinel DLP Agent"
-nssm set CyberSentinelAgent Description "Data Loss Prevention monitoring agent"
+nssm install CyberSentinelAgent "C:\Python3\python.exe" "C:\cybersentinel-dlp\agents\endpoint\windows\agent.py"
+nssm set CyberSentinelAgent AppDirectory "C:\cybersentinel-dlp\agents\endpoint\windows"
+nssm set CyberSentinelAgent AppParameters ""
 nssm set CyberSentinelAgent Start SERVICE_AUTO_START
-
-# Start service
 nssm start CyberSentinelAgent
-
-# Check status
-nssm status CyberSentinelAgent
 ```
 
-**Verify Windows Agent:**
+**Verify Windows Agent**
 
 ```powershell
-# Check logs
 Get-Content "C:\ProgramData\CyberSentinel\agent.log" -Tail 20
-
-# Test connection to server
-curl http://your-server.com:8000/api/v1/health
+curl http://your-server.com:55000/health
 ```
 
 ---
 
-### Linux Agent
+### Linux Agent (Endpoint)
 
-**Quick Installation:**
+The actively maintained Linux agent is located in `agents/endpoint/linux/agent.py` and includes an installer plus systemd unit file.
+
+**Quick Installation**
 
 ```bash
-# Run as root
-curl -fsSL https://raw.githubusercontent.com/effaaykhan/cybersentinel-dlp/main/agents/linux/install.sh | sudo bash -s -- --manager-url https://your-server.com:8000
+cd agents/endpoint/linux
+chmod +x install.sh
+sudo ./install.sh
 ```
 
-**Manual Installation:**
+**Manual Installation**
 
 ```bash
-# 1. Install Python 3.8+ (if not already installed)
-sudo apt update
-sudo apt install python3 python3-pip python3-venv -y
-
-# 2. Clone the repository
-git clone https://github.com/effaaykhan/cybersentinel-dlp.git
-cd cybersentinel-dlp/agents
-
-# 3. Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# 4. Install dependencies
+cd agents/endpoint/linux
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# 5. Create configuration
 sudo mkdir -p /etc/cybersentinel
-sudo tee /etc/cybersentinel/agent.yml > /dev/null <<EOF
-agent:
-  name: $(hostname)
-  manager_url: https://your-server.com:8000
-  heartbeat_interval: 60
+sudo cp agent_config.json /etc/cybersentinel/agent_config.json
+sudo nano /etc/cybersentinel/agent_config.json
 
-monitoring:
-  file_system:
-    enabled: true
-    paths:
-      - /home/\$USER/Desktop
-      - /home/\$USER/Documents
-      - /home/\$USER/Downloads
-    extensions:
-      - .pdf
-      - .docx
-      - .xlsx
-      - .txt
-      - .csv
-
-  clipboard:
-    enabled: true
-
-  usb:
-    enabled: true
-
-performance:
-  max_events_per_minute: 100
-  batch_size: 10
-EOF
-
-# 6. Run the agent
-cd linux
 python3 agent.py
 ```
 
-**Install as Systemd Service:**
+**Install as systemd Service**
 
 ```bash
-# Create service file
-sudo tee /etc/systemd/system/cybersentinel-agent.service > /dev/null <<EOF
-[Unit]
-Description=CyberSentinel DLP Agent
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/cybersentinel
-ExecStart=/opt/cybersentinel/venv/bin/python3 /opt/cybersentinel/agents/linux/agent.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start service
+sudo cp cybersentinel-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable cybersentinel-agent
 sudo systemctl start cybersentinel-agent
-
-# Check status
 sudo systemctl status cybersentinel-agent
 ```
 
-**Verify Linux Agent:**
+**Verify Linux Agent**
 
 ```bash
-# Check logs
 sudo journalctl -u cybersentinel-agent -f
-
-# Or check agent log file
-tail -f /var/log/cybersentinel/agent.log
-
-# Test connection to server
-curl http://your-server.com:8000/api/v1/health
+tail -f /var/log/cybersentinel_agent.log
+curl http://your-server.com:55000/health
 ```
 
 ---
@@ -547,56 +428,58 @@ LOG_FORMAT=json
 
 ### Agent Configuration
 
-Agent configuration file (`agent.yml`):
+Agent configuration file (`agent_config.json`):
 
-```yaml
-agent:
-  id: ""  # Auto-generated on first registration
-  name: my-laptop
-  manager_url: https://dlp-server.company.com:8000
-  registration_key: ""  # Auto-generated on registration
-  heartbeat_interval: 60  # seconds
-
-monitoring:
-  file_system:
-    enabled: true
-    paths:
-      - /home/user/Desktop
-      - /home/user/Documents
-      - /home/user/Downloads
-    extensions:
-      - .pdf
-      - .docx
-      - .xlsx
-      - .txt
-      - .csv
-      - .pptx
-    exclude_paths:
-      - /home/user/.cache
-      - /home/user/.local
-
-  clipboard:
-    enabled: true
-    # No additional configuration needed
-
-  usb:
-    enabled: true
-    # No additional configuration needed
-
-  network:
-    enabled: false  # Optional - network packet capture
-    interface: eth0
-
-performance:
-  max_events_per_minute: 100
-  max_event_size: 1048576  # 1MB
-  batch_size: 10
-  queue_size: 1000
-
-logging:
-  level: INFO
-  format: json
-  file: /var/log/cybersentinel/agent.log
+```json
+{
+  "server_url": "https://dlp-server.company.com:55000/api/v1",
+  "agent_id": "",
+  "agent_name": "my-laptop",
+  "heartbeat_interval": 30,
+  "monitoring": {
+    "file_system": true,
+    "monitored_paths": [
+      "/home/user/Desktop",
+      "/home/user/Documents",
+      "/home/user/Downloads"
+    ],
+    "file_extensions": [
+      ".pdf",
+      ".docx",
+      ".xlsx",
+      ".txt",
+      ".csv",
+      ".pptx"
+    ],
+    "exclude_paths": [
+      "/home/user/.cache",
+      "/home/user/.local"
+    ],
+    "transfer_blocking": {
+      "enabled": false,
+      "block_removable_drives": true
+    }
+  },
+  "monitoring_options": {
+    "clipboard": true,
+    "usb_devices": true
+  },
+  "classification": {
+    "enabled": true,
+    "max_file_size_mb": 10
+  },
+  "performance": {
+    "max_events_per_minute": 100,
+    "max_event_size": 1048576,
+    "batch_size": 10,
+    "queue_size": 1000
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "json",
+    "file": "/var/log/cybersentinel_agent.log"
+  }
+}
 ```
 
 ---
@@ -758,9 +641,9 @@ sudo systemctl status cybersentinel-agent
 
 ```bash
 # Check agent configuration
-cat /etc/cybersentinel/agent.yml  # Linux
+cat /etc/cybersentinel/agent_config.json  # Linux
 # or
-Get-Content "C:\ProgramData\CyberSentinel\agent.yml"  # Windows
+Get-Content "C:\ProgramData\CyberSentinel\agent_config.json"  # Windows
 
 # Verify manager_url is correct
 # Verify agent has registered (agent_id should be populated)
@@ -769,18 +652,20 @@ Get-Content "C:\ProgramData\CyberSentinel\agent.yml"  # Windows
 curl http://your-server.com:8000/api/v1/health
 
 # Re-register agent
-rm /etc/cybersentinel/agent.yml  # Remove config
+rm /etc/cybersentinel/agent_config.json  # Remove config
 # Restart agent to trigger auto-registration
 ```
 
 ### Performance Issues
 
 **Slow event processing:**
-```yaml
-# Increase batch size in agent.yml
-performance:
-  batch_size: 50  # Increase from 10
-  max_events_per_minute: 200  # Increase rate limit
+```json
+{
+  "performance": {
+    "batch_size": 50,
+    "max_events_per_minute": 200
+  }
+}
 ```
 
 **High CPU usage:**

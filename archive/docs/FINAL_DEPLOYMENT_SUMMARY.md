@@ -60,7 +60,7 @@ All fixes have been committed to GitHub repository:
 
 **Completed Steps:**
 1. ✅ Agent files deployed to `/opt/cybersentinel/`
-2. ✅ Configuration created at `/etc/cybersentinel/agent.yml`
+2. ✅ Configuration created at `/etc/cybersentinel/agent_config.json`
 3. ✅ Systemd service created
 4. ⏳ Installing python3-pip and build tools (59 packages)
 
@@ -92,7 +92,7 @@ monitoring:
 - Location: `/etc/systemd/system/cybersentinel-agent.service`
 - Type: systemd service
 - Auto-start: Enabled
-- Environment: `CYBERSENTINEL_CONFIG=/etc/cybersentinel/agent.yml`
+- Config: `/etc/cybersentinel/agent_config.json`
 
 **Next Steps:**
 1. Wait for apt-get to complete (installing build-essential, python3-dev)
@@ -326,8 +326,8 @@ cybersentinel-dlp/
 - `docker-compose.yml` - Service orchestration
 - `server/app/core/config.py` - Backend configuration
 - `dashboard/nginx.conf` - Proxy configuration
-- `/etc/cybersentinel/agent.yml` - Linux agent config
-- `C:\Users\Red Ghost\AppData\Local\CyberSentinel\config\agent.yml` - Windows agent config
+- `/etc/cybersentinel/agent_config.json` - Linux agent config
+- `C:\Users\Red Ghost\AppData\Local\CyberSentinel\config\agent_config.json` - Windows agent config
 
 ---
 

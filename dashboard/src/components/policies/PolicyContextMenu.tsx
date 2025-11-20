@@ -1,6 +1,6 @@
 import { forwardRef } from 'react'
 import { Eye, Edit, Copy, Power, Trash2 } from 'lucide-react'
-import { Policy } from '@/mocks/mockPolicies'
+import { Policy } from '@/types/policy'
 
 interface PolicyContextMenuProps {
   policy: Policy

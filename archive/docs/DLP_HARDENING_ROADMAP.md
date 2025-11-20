@@ -464,13 +464,13 @@ class NetworkMonitor:
 
 **Objective:** Provide ready-to-use compliance policy templates.
 
-**Location:** `config/policies/templates/`
+**Location:** ~~`config/policies/templates/`~~ (legacy YAML templates removed in Phase 5)
 
 **Templates to Create:**
 
 #### A. GDPR Compliance Template
 
-**File:** `config/policies/templates/gdpr_compliance.yml`
+**File:** ~~`config/policies/templates/gdpr_compliance.yml`~~ (removed)
 
 ```yaml
 policy:
@@ -519,7 +519,7 @@ rules:
 
 #### B. HIPAA Compliance Template
 
-**File:** `config/policies/templates/hipaa_compliance.yml`
+**File:** ~~`config/policies/templates/hipaa_compliance.yml`~~ (removed)
 
 ```yaml
 policy:
@@ -566,7 +566,7 @@ rules:
 
 #### C. PCI-DSS Compliance Template
 
-**File:** `config/policies/templates/pci_dss_compliance.yml`
+**File:** ~~`config/policies/templates/pci_dss_compliance.yml`~~ (removed)
 
 ```yaml
 policy:
@@ -617,7 +617,7 @@ rules:
 ```
 
 **Implementation Steps:**
-1. Create `config/policies/templates/` directory
+1. ~~Create `config/policies/templates/` directory~~ (obsolete – policies now stored in DB)
 2. Implement all compliance templates (GDPR, HIPAA, PCI-DSS, SOX, CCPA)
 3. Add template validation script
 4. Create policy import/export API

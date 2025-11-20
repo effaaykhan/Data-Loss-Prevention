@@ -84,7 +84,7 @@ AUTHOR: effaaykhan <effaaykhan@users.noreply.github.com>
 ✅ Auto-enrollment without pre-shared keys
 ✅ Full KQL query language support
 ✅ Pattern-based classification with Luhn validation
-✅ YAML configuration (manager.yml, agent.yml)
+✅ JSON agent configuration (agent_config.json)
 ✅ Daily rolling indices in OpenSearch
 ✅ 6-stage event processing pipeline
 ✅ Content redaction for compliance (PCI-DSS, GDPR, HIPAA)
@@ -212,7 +212,7 @@ Essential Docs:
 
 Configuration:
   • config/manager.yml.example - Server configuration (500 lines)
-  • config/agent.yml.example - Agent configuration (400 lines)
+  • agents/endpoint/windows/agent_config.json - Agent configuration (JSON)
   • .env.example - Environment variables
 
 Setup Scripts:

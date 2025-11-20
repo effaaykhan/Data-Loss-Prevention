@@ -84,12 +84,12 @@ sudo pip3 install -r requirements.txt
 
 **Windows:**
 - Install: `C:\Program Files\CyberSentinel`
-- Config: `C:\ProgramData\CyberSentinel\agent.yml`
+- Config: `C:\ProgramData\CyberSentinel\agent_config.json`
 - Logs: `C:\ProgramData\CyberSentinel\agent.log`
 
 **Linux:**
 - Install: `/opt/cybersentinel`
-- Config: `/etc/cybersentinel/agent.yml`
+- Config: `/etc/cybersentinel/agent_config.json`
 - Logs: `/etc/cybersentinel/logs/agent.log`
 
 ---

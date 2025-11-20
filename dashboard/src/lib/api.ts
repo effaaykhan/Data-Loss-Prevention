@@ -11,9 +11,23 @@ const apiClient = axios.create({
 
 // Add auth token to requests
 apiClient.interceptors.request.use((config) => {
+  // Get token from store (will be hydrated from localStorage by Zustand persist)
   const token = useAuthStore.getState().accessToken
-  if (token && config.headers) {
-    config.headers['Authorization'] = `Bearer ${token}`
+  // Fallback: try to get token directly from localStorage if store hasn't hydrated yet
+  let authToken = token
+  if (!authToken) {
+    try {
+      const authData = localStorage.getItem('dlp-auth-v2')
+      if (authData) {
+        const parsed = JSON.parse(authData)
+        authToken = parsed?.state?.accessToken
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+  if (authToken && config.headers) {
+    config.headers['Authorization'] = `Bearer ${authToken}`
   }
   return config
 })
@@ -228,6 +242,16 @@ export const deletePolicy = async (policyId: string) => {
 
 export const getPolicyStats = async () => {
   const { data } = await apiClient.get('/policies/stats/summary')
+  return data
+}
+
+export const enablePolicy = async (policyId: string) => {
+  const { data } = await apiClient.post(`/policies/${policyId}/enable`)
+  return data
+}
+
+export const disablePolicy = async (policyId: string) => {
+  const { data } = await apiClient.post(`/policies/${policyId}/disable`)
   return data
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { USBDeviceConfig } from '@/mocks/mockPolicies'
+import { USBDeviceConfig } from '@/types/policy'
 
 interface USBDevicePolicyFormProps {
   config: USBDeviceConfig

@@ -527,7 +527,7 @@ logging:
 ```
 
 ### Agent Configuration: `C:\Program Files\CyberSentinel\config.yml` (Windows)
-### Agent Configuration: `/etc/cybersentinel/agent.yml` (Linux)
+### Agent Configuration: `/etc/cybersentinel/agent_config.json` (Linux)
 ```yaml
 agent:
   id: ""  # Auto-assigned during registration

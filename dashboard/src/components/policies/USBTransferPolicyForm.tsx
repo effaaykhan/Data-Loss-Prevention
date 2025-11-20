@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { USBTransferConfig } from '@/mocks/mockPolicies'
+import { USBTransferConfig } from '@/types/policy'
 import { Plus, Trash2 } from 'lucide-react'
 
 interface USBTransferPolicyFormProps {

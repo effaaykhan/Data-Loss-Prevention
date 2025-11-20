@@ -4,6 +4,8 @@
 **Session Focus:** Phase 3 - Feature Expansion (Policy Templates)
 **Progress:** 40% Complete (Phases 1, 2, and partial Phase 3)
 
+> **Note:** Legacy YAML policy templates under `config/policies/templates` were removed during Phase 5 cleanup. This document is preserved for historical context only.
+
 ---
 
 ## Session 2 Accomplishments

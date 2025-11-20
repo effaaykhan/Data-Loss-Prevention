@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { MoreVertical, Shield } from 'lucide-react'
-import { Policy } from '@/mocks/mockPolicies'
+import { Policy } from '@/types/policy'
 import { getPolicyTypeIcon, getPolicyTypeLabel, formatPolicyConfig, getSeverityColorLight } from '@/utils/policyUtils'
 import PolicyContextMenu from './PolicyContextMenu'
 

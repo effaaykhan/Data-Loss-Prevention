@@ -151,6 +151,16 @@ class DLPAgent:
         self.running = False
         self.observers = []
         self.last_clipboard = ""
+        self.policy_bundle = None
+        self.policy_file_paths: List[str] = []
+        self.policy_clipboard_rules: List[Dict[str, Any]] = []
+        self.usb_transfer_policies: List[Dict[str, Any]] = []
+        self.active_policy_version: Optional[str] = None
+        self.policy_sync_interval = self.config.get("policy_sync_interval", 300)
+        self.policy_capabilities = self._get_policy_capabilities()
+        self.last_policy_sync_at: Optional[str] = None
+        self.last_policy_sync_status: str = "never"
+        self.last_policy_sync_error: Optional[str] = None
         
         # Transfer blocking: Track removable drives and monitored directories
         self.removable_drives = set()  # Track current removable drive letters: {'E:', 'F:'}
@@ -166,6 +176,9 @@ class DLPAgent:
 
         # Register agent with server
         self.register_agent()
+        self.sync_policies(initial=True)
+        if self.policy_sync_interval:
+            threading.Thread(target=self.policy_sync_loop, daemon=True).start()
 
         # Start file system monitoring
         if self.config.get("monitoring", {}).get("file_system", True):
@@ -244,11 +257,7 @@ class DLPAgent:
                 "os_version": platform.platform(),
                 "ip_address": socket.gethostbyname(socket.gethostname()),
                 "version": "1.0.0",
-                "capabilities": {
-                    "file_monitoring": True,
-                    "clipboard_monitoring": True,
-                    "usb_monitoring": True
-                }
+                "capabilities": self.policy_capabilities
             }
 
             response = requests.post(
@@ -265,14 +274,141 @@ class DLPAgent:
         except Exception as e:
             logger.error(f"Error registering agent: {e}")
 
+    def _get_policy_capabilities(self) -> Dict[str, bool]:
+        monitoring_cfg = self.config.get("monitoring", {})
+        return {
+            "file_monitoring": bool(monitoring_cfg.get("file_system", True)),
+            "clipboard_monitoring": bool(monitoring_cfg.get("clipboard", True)),
+            "usb_monitoring": bool(monitoring_cfg.get("usb_devices", True)),
+        }
+
+    def policy_sync_loop(self):
+        """Background loop to periodically sync policies."""
+        while self.running and self.policy_sync_interval:
+            time.sleep(self.policy_sync_interval)
+            try:
+                self.sync_policies()
+            except Exception as exc:
+                logger.debug(f"Policy sync loop error: {exc}")
+
+    def sync_policies(self, initial: bool = False):
+        """Fetch policies from server and apply them."""
+        try:
+            payload = {
+                "platform": "windows",
+                "capabilities": self.policy_capabilities,
+            }
+            if self.active_policy_version:
+                payload["installed_version"] = self.active_policy_version
+
+            response = requests.post(
+                f"{self.server_url}/agents/{self.agent_id}/policies/sync",
+                json=payload,
+                timeout=15,
+            )
+            if response.status_code != 200:
+                logger.warning(f"Policy sync failed ({response.status_code}): {response.text}")
+                self.last_policy_sync_status = f"error_{response.status_code}"
+                self.last_policy_sync_error = response.text
+                self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+                return
+
+            data = response.json()
+            if data.get("status") == "up_to_date":
+                if initial:
+                    logger.info("Agent policy bundle already up to date")
+                self.last_policy_sync_status = "up_to_date"
+                self.last_policy_sync_error = None
+                self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+                return
+
+            self.policy_bundle = data
+            self.active_policy_version = data.get("version")
+            self.last_policy_sync_status = "success"
+            self.last_policy_sync_error = None
+            self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+            logger.info(
+                "Policy bundle updated",
+                extra={"version": self.active_policy_version, "count": data.get("policy_count")}
+            )
+            self._apply_policy_bundle()
+        except Exception as e:
+            log_method = logger.error if initial else logger.debug
+            log_method(f"Failed to sync policies: {e}")
+            self.last_policy_sync_status = "exception"
+            self.last_policy_sync_error = str(e)
+            self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+
+    def _apply_policy_bundle(self):
+        """Apply bundle to runtime configuration."""
+        if not self.policy_bundle:
+            return
+
+        policies = self.policy_bundle.get("policies", {})
+        file_policies = policies.get("file_system_monitoring", [])
+        clipboard_policies = policies.get("clipboard_monitoring", [])
+        usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
+
+        new_file_paths: List[str] = []
+        for policy in file_policies + usb_transfer_policies:
+            config = policy.get("config", {})
+            paths = config.get("monitoredPaths", [])
+            new_file_paths.extend(paths)
+        self.policy_file_paths = list(dict.fromkeys(new_file_paths))
+        self.policy_clipboard_rules = clipboard_policies
+        self.usb_transfer_policies = usb_transfer_policies
+
+        if self.observers:
+            self._restart_file_monitoring()
+
+    def _resolve_monitored_paths(self) -> List[str]:
+        """Determine effective monitored paths based on policy bundle."""
+        if self.policy_file_paths:
+            return self.policy_file_paths
+        monitoring_cfg = self.config.get("monitoring", {})
+        return monitoring_cfg.get("monitored_paths", [])
+
+    def _restart_file_monitoring(self):
+        """Restart file observers with new configuration."""
+        logger.info("Restarting file monitoring with updated policies")
+        for observer in self.observers:
+            observer.stop()
+            observer.join()
+        self.observers = []
+        self.start_file_monitoring()
+
+    def _expand_path(self, path: str) -> str:
+        """Expand env variables and user tokens in path."""
+        expanded = os.path.expandvars(path or "")
+        expanded = os.path.expanduser(expanded)
+        return expanded
+
+    def _match_usb_transfer_policy(self, source_path: str) -> Optional[Dict[str, Any]]:
+        """Find matching USB transfer policy for a given source path."""
+        if not self.usb_transfer_policies or not source_path:
+            return None
+
+        normalized_src = source_path.lower()
+        for policy in self.usb_transfer_policies:
+            config = policy.get("config", {})
+            for path in config.get("monitoredPaths", []):
+                expanded = self._expand_path(path).lower()
+                if expanded and normalized_src.startswith(expanded):
+                    return policy
+        return None
+
     def start_file_monitoring(self):
         """Start monitoring file system"""
-        monitored_paths = self.config.get("monitoring", {}).get("monitored_paths", [])
+        monitored_paths = self._resolve_monitored_paths()
         self.monitored_directories = []  # Track monitored directories for transfer blocking
+
+        if not monitored_paths:
+            logger.warning("No monitored paths configured for file monitoring")
+            return
 
         for path in monitored_paths:
             # Expand environment variables (e.g., %USERNAME%)
-            expanded_path = os.path.expandvars(path)
+            expanded_path = self._expand_path(path)
             
             if os.path.exists(expanded_path):
                 self.monitored_directories.append(expanded_path)  # Track for transfer blocking
@@ -450,6 +586,7 @@ class DLPAgent:
 
             # Read content for classification
             content = self._read_file_content(file_path, max_bytes=100000)
+            content_snippet = content[:5000] if content else None
 
             # Classify content (simplified - in production, call server API)
             classification = self._classify_content(content)
@@ -470,8 +607,13 @@ class DLPAgent:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "classification": classification,
+                "source_path": file_path,
+                "content": content_snippet,
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+            if self.active_policy_version:
+                event_data["policy_version"] = self.active_policy_version
 
             logger.info(f"Sending file event: {event_type} - {Path(file_path).name} - Severity: {classification.get('severity', 'low')}")
             self.send_event(event_data)
@@ -497,11 +639,15 @@ class DLPAgent:
                     "severity": classification.get("severity", "medium"),
                     "action": "alerted",
                     "classification": classification,
+                    "content": content[:5000],
                     "details": {
                         "content_preview": content[:200] if len(content) > 200 else content
                     },
                     "timestamp": datetime.utcnow().isoformat()
                 }
+
+                if self.active_policy_version:
+                    event_data["policy_version"] = self.active_policy_version
 
                 self.send_event(event_data)
                 logger.info(f"Clipboard event: {classification.get('labels')}")
@@ -597,12 +743,27 @@ class DLPAgent:
             
             if source_file:
                 logger.warning(f"Copy detected: {source_file} -> {file_path}")
-                
-                # Block the transfer
-                blocked = self.block_file_transfer(file_path)
-                
+
+                policy = self._match_usb_transfer_policy(source_file)
+                if not policy:
+                    logger.info("No USB transfer policy matched; leaving file in place")
+                    return
+
+                policy_action = policy.get("config", {}).get("action", "block").lower()
+                blocked = False
+                if policy_action == "block":
+                    blocked = self.block_file_transfer(file_path)
+
                 # Send blocked transfer event
-                self._send_blocked_transfer_event(source_file, file_path, file_hash, file_size, blocked)
+                self._send_blocked_transfer_event(
+                    source_file,
+                    file_path,
+                    file_hash,
+                    file_size,
+                    blocked,
+                    policy=policy,
+                    action=policy_action,
+                )
             else:
                 logger.info(f"File on removable drive not found in monitored directories: {file_path} (Name: {file_name}, Size: {file_size})")
                 
@@ -704,7 +865,16 @@ class DLPAgent:
             logger.error(f"Failed to block transfer: {e}", exc_info=True)
             return False
 
-    def _send_blocked_transfer_event(self, source_file: str, dest_file: str, file_hash: str, file_size: int, blocked: bool):
+    def _send_blocked_transfer_event(
+        self,
+        source_file: str,
+        dest_file: str,
+        file_hash: str,
+        file_size: int,
+        blocked: bool,
+        policy: Optional[Dict[str, Any]] = None,
+        action: str = "block",
+    ):
         """
         Send event for blocked transfer
         
@@ -723,6 +893,12 @@ class DLPAgent:
             # Determine severity (always critical for blocked transfers)
             severity = "critical" if blocked else "high"
             
+            description = (
+                f"File transfer blocked: {Path(source_file).name} -> {Path(dest_file).name}"
+                if blocked else
+                f"File transfer detected: {Path(source_file).name} -> {Path(dest_file).name}"
+            )
+
             event_data = {
                 "event_id": str(uuid.uuid4()),
                 "event_type": "file",
@@ -730,7 +906,7 @@ class DLPAgent:
                 "agent_id": self.agent_id,
                 "source_type": "agent",
                 "user_email": f"{os.getlogin()}@{socket.gethostname()}",
-                "description": f"File transfer blocked: {Path(source_file).name} -> {Path(dest_file).name}",
+                "description": description,
                 "severity": severity,
                 "action": "blocked" if blocked else "logged",
                 "file_path": source_file,  # Source file path
@@ -739,10 +915,19 @@ class DLPAgent:
                 "file_hash": file_hash,
                 "classification": classification,
                 "destination": dest_file,  # Destination on removable drive
+                "source_path": source_file,
                 "blocked": blocked,
+                "destination_type": "removable_drive",
+                "content": content[:5000] if content else None,
                 "transfer_type": "usb_copy",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
+                "policy_id": policy.get("id") if policy else None,
+                "policy_name": policy.get("name") if policy else None,
+                "policy_action": action,
             }
+
+            if self.active_policy_version:
+                event_data["policy_version"] = self.active_policy_version
             
             logger.info(
                 f"Sending blocked transfer event: {Path(source_file).name} -> {Path(dest_file).name} "
@@ -849,6 +1034,14 @@ class DLPAgent:
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "ip_address": socket.gethostbyname(socket.gethostname())
             }
+            if self.active_policy_version:
+                data["policy_version"] = self.active_policy_version
+            if self.last_policy_sync_status:
+                data["policy_sync_status"] = self.last_policy_sync_status
+            if self.last_policy_sync_at:
+                data["policy_last_synced_at"] = self.last_policy_sync_at
+            if self.last_policy_sync_error:
+                data["policy_sync_error"] = self.last_policy_sync_error
 
             response = requests.put(
                 f"{self.server_url}/agents/{self.agent_id}/heartbeat",

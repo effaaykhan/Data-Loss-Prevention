@@ -1,0 +1,282 @@
+# CyberSentinel DLP - Cursor Rules
+
+## Project Overview
+Enterprise-grade Data Loss Prevention (DLP) platform with ML-based PII detection, multi-channel monitoring, automated response actions, and SIEM integration.
+
+**Tech Stack:**
+- Backend: Python 3.11, FastAPI 0.104.1, PostgreSQL 15, MongoDB 7, Redis 7, OpenSearch 2.11
+- Frontend: Node.js 18+, React 18, TypeScript, Vite
+- Agents: Python 3.10+ (Windows/Linux)
+- Containerization: Docker, Docker Compose
+
+## Project Structure
+
+```
+Data-Loss-Prevention/
+├── server/                 # FastAPI backend (Python)
+│   ├── app/
+│   │   ├── api/v1/        # API endpoints (events, agents, policies, etc.)
+│   │   ├── core/          # Database, security, config
+│   │   ├── models/        # SQLAlchemy models
+│   │   ├── services/      # Business logic
+│   │   └── main.py        # FastAPI app entry point
+│   └── Dockerfile
+├── dashboard/             # React frontend (TypeScript)
+│   ├── src/
+│   │   ├── pages/         # Pages Router components
+│   │   ├── app/            # App Router components
+│   │   ├── components/     # Reusable components
+│   │   └── lib/            # API client, utils
+│   └── Dockerfile
+├── agents/                # Endpoint agents
+│   ├── endpoint/
+│   │   ├── windows/       # Windows agent (agent.py, agent_config.json)
+│   │   └── linux/         # Linux agent (agent.py, agent_config.json)
+│   └── requirements.txt
+├── docker-compose.yml      # Main Docker orchestration
+├── .env                    # Environment variables (not in git)
+└── config/                 # Configuration files
+
+Windows Agent Location: /mnt/d/CyberSentinelAgent/ (for manual testing)
+```
+
+## Critical Rules
+
+### Git Operations
+- **NEVER commit or push to git without explicit user permission**
+- Always ask before running `git commit`, `git push`, or any git write operations
+- User preference: Minimal explanations, implement directly
+
+### Windows Agent Updates
+- **ALWAYS copy updated Windows agent files to `/mnt/d/CyberSentinelAgent/` after modifying `agents/endpoint/windows/`**
+- This is for manual testing on Windows
+- Files to copy: `agent.py`, `agent_config.json`, and any other modified files
+
+### Plan Management
+- **ALWAYS maintain a `plan.md` file in the project root**
+- When starting a new feature/task, create or reset `plan.md` with the complete plan
+- Update `plan.md` after completing each step (mark as ✅)
+- Always follow the plan in `plan.md` - it is the single source of truth for current work
+- Break down complex tasks into checkboxes in the plan
+- Keep the plan updated with current status and next steps
+
+### Documentation
+- Working docs live at the repo root: `.cursorrules`, `README.md`, `plan.md`, `INSTALLATION_GUIDE.md`, and `TESTING_COMMANDS.md`
+- Any legacy or exploratory docs belong under `archive/` (already populated); move new long-form notes there instead of deleting
+- Keep `INSTALLATION_GUIDE.md` focused on deployment, `TESTING_COMMANDS.md` on verification scripts, and reference the archive only for historical context
+
+### Code Style
+- Follow PEP 8 for Python code
+- Use TypeScript strict mode for frontend
+- Prefer explicit over implicit
+- Add docstrings for functions/classes
+- Use structured logging (structlog)
+
+## Docker Commands
+
+### Start Services
+```bash
+cd /home/vansh/Code/Data-Loss-Prevention
+docker compose up -d                    # Start all services
+docker compose ps                       # Check status
+docker compose logs -f manager          # View manager logs
+docker compose logs -f dashboard        # View dashboard logs
+```
+
+### Stop Services
+```bash
+docker compose down                     # Stop and remove containers
+docker compose stop                     # Stop containers (keep data)
+```
+
+### Rebuild Containers
+```bash
+docker compose build manager            # Rebuild manager only
+docker compose build dashboard          # Rebuild dashboard only
+docker compose build --no-cache manager # Clean rebuild (no cache)
+docker compose up -d --build            # Rebuild and restart
+```
+
+### Restart Services
+```bash
+docker compose restart manager          # Restart manager
+docker compose restart dashboard        # Restart dashboard
+docker compose restart                  # Restart all
+```
+
+### Database Access
+```bash
+# PostgreSQL
+docker compose exec postgres psql -U dlp_user -d cybersentinel_dlp
+
+# MongoDB
+MONGODB_PASSWORD=$(grep "^MONGODB_PASSWORD=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'")
+docker exec -it cybersentinel-mongodb mongosh -u dlp_user -p "$MONGODB_PASSWORD" --authenticationDatabase admin cybersentinel_dlp
+
+# Clear MongoDB events
+docker exec cybersentinel-mongodb mongosh -u dlp_user -p "$MONGODB_PASSWORD" --authenticationDatabase admin cybersentinel_dlp --eval "db.dlp_events.deleteMany({})"
+```
+
+## Service Ports
+
+- **Dashboard**: http://localhost:3000
+- **Manager API**: http://localhost:55000
+- **PostgreSQL**: localhost:5432
+- **MongoDB**: localhost:27017
+- **Redis**: localhost:6379
+- **OpenSearch**: http://localhost:9200
+
+## Key API Endpoints
+
+- `POST /api/v1/auth/login` - Authentication (username/password)
+- `GET /api/v1/events` - List events (requires auth)
+- `POST /api/v1/events` - Create event (public, for agents)
+- `DELETE /api/v1/events/clear` - Clear all events (admin only)
+- `GET /api/v1/agents` - List agents
+- `GET /api/v1/policies` - List policies
+
+## Development Workflow
+
+### Backend Changes
+1. Edit files in `server/app/`
+2. Restart manager: `docker compose restart manager`
+3. Check logs: `docker compose logs -f manager`
+
+### Frontend Changes
+1. Edit files in `dashboard/src/`
+2. Rebuild dashboard: `docker compose build dashboard && docker compose restart dashboard`
+3. Hard refresh browser (Ctrl+Shift+R) to clear cache
+
+### Agent Changes
+1. Edit files in `agents/endpoint/windows/` or `agents/endpoint/linux/`
+2. **For Windows**: Copy to `/mnt/d/CyberSentinelAgent/`
+3. Test manually on target OS
+
+## Testing
+
+### API Testing
+```bash
+# Get auth token
+TOKEN=$(curl -s -X POST http://localhost:55000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+
+# Test endpoint
+curl -H "Authorization: Bearer $TOKEN" http://localhost:55000/api/v1/events
+```
+
+### Browser Testing
+- Dashboard: http://localhost:3000
+- Default login: admin/admin
+- Use browser tools for UI testing
+
+## Common Tasks
+
+### Clear All Events
+- Use the "Clear Logs" button in dashboard Events page
+- Or API: `DELETE /api/v1/events/clear` (admin only)
+
+### View Logs
+```bash
+docker compose logs manager --tail 50
+docker compose logs dashboard --tail 50
+docker compose logs mongodb --tail 50
+```
+
+### Check Service Health
+```bash
+curl http://localhost:55000/health
+curl http://localhost:55000/ready
+docker compose ps
+```
+
+## Important Files
+
+- `server/app/api/v1/events.py` - Events API (ingestion flows through EventProcessor)
+- `server/app/api/v1/policies.py` - Policies CRUD + stats endpoint + config transforms
+- `server/app/api/v1/agents.py` - Agent registration, policy sync, and telemetry APIs
+- `server/app/services/event_processor.py` - Central pipeline (classification + DB policy evaluation)
+- `server/app/policies/database_policy_evaluator.py` - DB-backed policy matching
+- `server/app/utils/policy_transformer.py` - Frontend config → backend conditions/actions
+- `server/app/services/policy_service.py` - Policy persistence helpers
+- `server/app/models/policy.py` - Policy ORM model
+- `dashboard/src/lib/api.ts` - Frontend API client + auth handling
+- `dashboard/src/types/policy.ts` - Shared policy types for UI
+- `dashboard/src/app/dashboard/policies/page.tsx` - Policies UI (hooks to live API/stats)
+- `dashboard/src/components/policies/*` - Creator, tables, forms, details, context menu
+- `dashboard/src/app/dashboard/events/page.tsx` - Events UI (App Router)
+- `agents/endpoint/windows/agent.py` / `agent_config.json` - Windows agent runtime + config
+- `agents/endpoint/linux/agent.py` / `agent_config.json` - Linux agent runtime + config
+
+## Architecture Notes
+
+- **Dual Monitoring**: Monitors both source directories and removable drives for file transfers
+- **Transfer Blocking**: Can block file copies to USB drives (configurable in agent_config.json)
+- **Event Storage**: Events stored in MongoDB (`dlp_events` collection)
+- **User Storage**: Users stored in PostgreSQL (`users` table)
+- **Policy Storage**: Policies stored in PostgreSQL (`policies` table)
+- **Caching**: Redis used for sessions and caching
+- **Search**: OpenSearch for advanced event search (optional)
+
+## Policy System
+
+### Policy Types
+- **Clipboard Monitoring**: Detects sensitive data (SSN, credit cards, API keys, etc.) in clipboard
+- **File System Monitoring**: Monitors directories for file operations (create, modify, delete, move, copy)
+- **USB Device Monitoring**: Monitors USB device connections/disconnections
+- **USB File Transfer Monitoring**: Monitors and blocks/quarantines file transfers to USB drives
+
+### Policy Management UI
+- **Create Policy**: Multi-step wizard (Type → Config → Review)
+  - Step 1: Select policy type (Clipboard, File System, USB Device, USB Transfer)
+  - Step 2: Configure policy settings (name, description, severity, priority, enabled status, type-specific config)
+  - Step 3: Review and save
+- **Policy Tables**: Separate tables for Active and Inactive policies
+- **Policy Actions** (via 3-dots menu):
+  - View Details: Read-only modal with full policy configuration and JSON view toggle
+  - Edit Policy: Opens creation modal pre-filled with policy data
+  - Duplicate Policy: Creates copy and opens creation modal
+  - Toggle Status: Activate/deactivate policy
+  - Delete Policy: Removes policy (with confirmation)
+
+### Policy Components Location
+- Main page: `dashboard/src/app/dashboard/policies/page.tsx`
+- Policy creator modal: `dashboard/src/components/policies/PolicyCreatorModal.tsx`
+- Policy type forms: `dashboard/src/components/policies/*PolicyForm.tsx`
+- Policy table: `dashboard/src/components/policies/PolicyTable.tsx`
+- Policy row: `dashboard/src/components/policies/PolicyRow.tsx`
+- Context menu: `dashboard/src/components/policies/PolicyContextMenu.tsx`
+- Details modal: `dashboard/src/components/policies/PolicyDetailsModal.tsx`
+- Mock data: `dashboard/src/mocks/mockPolicies.ts`
+- Utilities: `dashboard/src/utils/policyUtils.ts`
+
+### Backend API
+- `GET /api/v1/policies` - List all policies
+- `GET /api/v1/policies/{id}` - Get single policy
+- `POST /api/v1/policies` - Create policy (requires "analyst" role)
+- `PUT /api/v1/policies/{id}` - Update policy (requires "analyst" role)
+- `DELETE /api/v1/policies/{id}` - Delete policy (requires "admin" role)
+- `POST /api/v1/policies/{id}/enable` - Enable policy
+- `POST /api/v1/policies/{id}/disable` - Disable policy
+
+### Current Status
+- **Frontend**: Policies UI fully integrated with live API + stats endpoint (React Query, no mocks)
+- **Backend**: `/api/v1/policies` supports create/update via config transformer; stats + enable/disable endpoints deployed
+- **Event Pipeline**: `/api/v1/events` routes through `EventProcessor` → `DatabasePolicyEvaluator` → `ActionExecutor`, persisting matches/action summaries
+- **Agents**: Windows & Linux agents sync active DB policies via `/agents/{id}/policies/sync` and stamp `policy_version`; heartbeat telemetry exposes sync status
+
+## Configuration
+
+- Agent config: `agents/endpoint/windows/agent_config.json`
+- Server config: Environment variables in `.env` file
+- Docker config: `docker-compose.yml`
+
+## Notes
+
+- Always rebuild containers after code changes for frontend
+- Manager auto-reloads on code changes (volume mount)
+- Dashboard requires rebuild for changes to take effect
+- Windows agent must be manually copied to `/mnt/d/` for testing
+- User prefers minimal explanations - implement directly
+- Keep status updates short and concise
+

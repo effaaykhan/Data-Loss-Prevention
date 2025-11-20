@@ -17,7 +17,7 @@ import signal
 import atexit
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import requests
 from watchdog.observers import Observer
@@ -156,6 +156,14 @@ class DLPAgent:
         self.server_url = self.config.get("server_url")
         self.running = False
         self.observers = []
+        self.policy_bundle = None
+        self.policy_file_paths: List[str] = []
+        self.active_policy_version: Optional[str] = None
+        self.policy_sync_interval = self.config.get("policy_sync_interval", 300)
+        self.policy_capabilities = {"file_monitoring": self.config.get("monitoring", {}).get("file_system", True)}
+        self.last_policy_sync_at: Optional[str] = None
+        self.last_policy_sync_status: str = "never"
+        self.last_policy_sync_error: Optional[str] = None
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -166,6 +174,9 @@ class DLPAgent:
 
         # Register agent with server
         self.register_agent()
+        self.sync_policies(initial=True)
+        if self.policy_sync_interval:
+            threading.Thread(target=self.policy_sync_loop, daemon=True).start()
 
         # Start file system monitoring
         if self.config.get("monitoring", {}).get("file_system", True):
@@ -229,11 +240,7 @@ class DLPAgent:
                 "os_version": platform.platform(),
                 "ip_address": socket.gethostbyname(socket.gethostname()),
                 "version": "1.0.0",
-                "capabilities": {
-                    "file_monitoring": True,
-                    "clipboard_monitoring": False,
-                    "usb_monitoring": False
-                }
+                "capabilities": self.policy_capabilities
             }
 
             response = requests.post(
@@ -250,20 +257,112 @@ class DLPAgent:
         except Exception as e:
             logger.error(f"Error registering agent: {e}")
 
+    def policy_sync_loop(self):
+        while self.running and self.policy_sync_interval:
+            time.sleep(self.policy_sync_interval)
+            try:
+                self.sync_policies()
+            except Exception as exc:
+                logger.debug(f"Policy sync loop error: {exc}")
+
+    def sync_policies(self, initial: bool = False):
+        try:
+            payload = {
+                "platform": "linux",
+                "capabilities": self.policy_capabilities,
+            }
+            if self.active_policy_version:
+                payload["installed_version"] = self.active_policy_version
+
+            response = requests.post(
+                f"{self.server_url}/agents/{self.agent_id}/policies/sync",
+                json=payload,
+                timeout=15,
+            )
+            if response.status_code != 200:
+                logger.warning(f"Policy sync failed ({response.status_code}): {response.text}")
+                self.last_policy_sync_status = f"error_{response.status_code}"
+                self.last_policy_sync_error = response.text
+                self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+                return
+
+            data = response.json()
+            if data.get("status") == "up_to_date":
+                if initial:
+                    logger.info("Agent policy bundle already up to date")
+                self.last_policy_sync_status = "up_to_date"
+                self.last_policy_sync_error = None
+                self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+                return
+
+            self.policy_bundle = data
+            self.active_policy_version = data.get("version")
+            self.last_policy_sync_status = "success"
+            self.last_policy_sync_error = None
+            self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+            logger.info(
+                "Policy bundle updated",
+                extra={"version": self.active_policy_version, "count": data.get("policy_count")}
+            )
+            self._apply_policy_bundle()
+        except Exception as e:
+            log_method = logger.error if initial else logger.debug
+            log_method(f"Failed to sync policies: {e}")
+            self.last_policy_sync_status = "exception"
+            self.last_policy_sync_error = str(e)
+            self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
+
+    def _apply_policy_bundle(self):
+        if not self.policy_bundle:
+            return
+
+        policies = self.policy_bundle.get("policies", {})
+        file_policies = policies.get("file_system_monitoring", [])
+        usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
+
+        new_paths: List[str] = []
+        for policy in file_policies + usb_transfer_policies:
+            config = policy.get("config", {})
+            new_paths.extend(config.get("monitoredPaths", []))
+        self.policy_file_paths = list(dict.fromkeys(new_paths))
+
+        if self.observers:
+            self._restart_file_monitoring()
+
+    def _restart_file_monitoring(self):
+        logger.info("Restarting file monitors with updated policies")
+        for observer in self.observers:
+            observer.stop()
+            observer.join()
+        self.observers = []
+        self.start_file_monitoring()
+
+    def _resolve_monitored_paths(self) -> List[str]:
+        if self.policy_file_paths:
+            return self.policy_file_paths
+        monitoring_cfg = self.config.get("monitoring", {})
+        return monitoring_cfg.get("monitored_paths", [])
+
+    def _expand_path(self, path: str) -> str:
+        expanded = os.path.expandvars(path or "")
+        expanded = os.path.expanduser(expanded)
+        return expanded
+
     def start_file_monitoring(self):
         """Start monitoring file system"""
-        monitored_paths = self.config.get("monitoring", {}).get("monitored_paths", [])
+        monitored_paths = self._resolve_monitored_paths()
 
         for path in monitored_paths:
-            if os.path.exists(path):
+            expanded_path = self._expand_path(path)
+            if os.path.exists(expanded_path):
                 event_handler = FileMonitorHandler(self)
                 observer = Observer()
-                observer.schedule(event_handler, path, recursive=True)
+                observer.schedule(event_handler, expanded_path, recursive=True)
                 observer.start()
                 self.observers.append(observer)
-                logger.info(f"Monitoring path: {path}")
+                logger.info(f"Monitoring path: {expanded_path}")
             else:
-                logger.warning(f"Path does not exist: {path}")
+                logger.warning(f"Path does not exist: {expanded_path}")
 
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
@@ -281,6 +380,7 @@ class DLPAgent:
 
             # Read content for classification
             content = self._read_file_content(file_path, max_bytes=100000)
+            content_snippet = content[:5000] if content else None
 
             # Classify content
             classification = self._classify_content(content)
@@ -306,8 +406,13 @@ class DLPAgent:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "classification": classification,
+                "source_path": file_path,
+                "content": content_snippet,
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+            if self.active_policy_version:
+                event_data["policy_version"] = self.active_policy_version
 
             self.send_event(event_data)
 
@@ -376,6 +481,9 @@ class DLPAgent:
     def send_event(self, event_data: Dict[str, Any]):
         """Send event to server"""
         try:
+            if self.active_policy_version and "policy_version" not in event_data:
+                event_data["policy_version"] = self.active_policy_version
+
             response = requests.post(
                 f"{self.server_url}/events",
                 json=event_data,
@@ -414,7 +522,7 @@ class DLPAgent:
 
             response = requests.put(
                 f"{self.server_url}/agents/{self.agent_id}/heartbeat",
-                json=data,
+                json=self._augment_heartbeat_data(data),
                 timeout=30  # Increased timeout to handle slow server responses
             )
 
@@ -425,6 +533,17 @@ class DLPAgent:
 
         except Exception as e:
             logger.error(f"Heartbeat failed: {e}", exc_info=True)
+
+    def _augment_heartbeat_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if self.active_policy_version:
+            data["policy_version"] = self.active_policy_version
+        if self.last_policy_sync_status:
+            data["policy_sync_status"] = self.last_policy_sync_status
+        if self.last_policy_sync_at:
+            data["policy_last_synced_at"] = self.last_policy_sync_at
+        if self.last_policy_sync_error:
+            data["policy_sync_error"] = self.last_policy_sync_error
+        return data
 
 
 def main():
