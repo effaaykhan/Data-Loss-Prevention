@@ -127,6 +127,16 @@ async def create_event(
     # Merge processed event data
     _merge_processed_event(event_doc, processed_event)
 
+    # Deduplication: Check if event with same ID already exists
+    existing = await events_collection.find_one({"id": event.event_id})
+    if existing:
+        logger.debug(
+            "Duplicate event detected, skipping insert",
+            event_id=event.event_id,
+            agent_id=event.agent_id
+        )
+        return {"status": "duplicate", "event_id": event.event_id}
+    
     # Insert into database
     await events_collection.insert_one(event_doc)
 

@@ -280,3 +280,16 @@ docker compose ps
 - User prefers minimal explanations - implement directly
 - Keep status updates short and concise
 
+## Event Display Guidelines
+
+### Event Detail Modal Enhancement
+- **When adding a new policy type**, always update the event detail modal to display type-specific violation details:
+  - **Clipboard events**: Show clipboard content in a dedicated section
+  - **File events**: Show file information (name, path, size, extension, hash) and file content snippet that triggered the violation
+  - **Transfer events**: Show detailed flow visualization with source, destination, file details, and action taken
+  - **All events**: Display detected sensitive data (classification labels) and matched policies with their actions
+- Update both event display pages:
+  - `dashboard/src/app/dashboard/events/page.tsx` (App Router - dark theme)
+  - `dashboard/src/pages/Events.tsx` (Pages Router - light theme)
+- Ensure the modal dynamically renders sections based on `event_type` and includes relevant content fields (`content`, `clipboard_content`, `file_path`, `file_name`, `classification_labels`, `matched_policies`)
+

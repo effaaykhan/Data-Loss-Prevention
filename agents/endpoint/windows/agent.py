@@ -166,6 +166,10 @@ class DLPAgent:
         self.removable_drives = set()  # Track current removable drive letters: {'E:', 'F:'}
         self.removable_observers = {}  # Track observers: {'E:': Observer instance}
         self.monitored_directories = []  # List of monitored directory paths (expanded)
+        
+        # Deduplication: Track recent events to prevent duplicates
+        self.recent_events = {}  # {(file_path, event_type): timestamp}
+        self.dedup_window_seconds = 2  # Ignore duplicate events within 2 seconds
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -572,6 +576,15 @@ class DLPAgent:
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
+            # Deduplication: Check if we recently sent an event for this file/type
+            dedup_key = (file_path, event_type)
+            now = time.time()
+            if dedup_key in self.recent_events:
+                last_sent = self.recent_events[dedup_key]
+                if now - last_sent < self.dedup_window_seconds:
+                    logger.debug(f"Skipping duplicate event: {event_type} - {file_path} (last sent {now - last_sent:.2f}s ago)")
+                    return
+            
             logger.info(f"File event detected: {event_type} - {file_path}")
             # Get file info
             file_size = os.path.getsize(file_path)
@@ -617,6 +630,13 @@ class DLPAgent:
 
             logger.info(f"Sending file event: {event_type} - {Path(file_path).name} - Severity: {classification.get('severity', 'low')}")
             self.send_event(event_data)
+            
+            # Record this event to prevent duplicates
+            self.recent_events[dedup_key] = now
+            # Clean up old entries (keep only recent 100 entries)
+            if len(self.recent_events) > 100:
+                cutoff = now - self.dedup_window_seconds
+                self.recent_events = {k: v for k, v in self.recent_events.items() if v > cutoff}
 
         except Exception as e:
             logger.error(f"Error handling file event: {e}", exc_info=True)

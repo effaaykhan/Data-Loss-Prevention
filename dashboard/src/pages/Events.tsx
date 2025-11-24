@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2, Clipboard, Eye, Bell, Download } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
 import { searchEvents, getAgents, clearAllEvents, type Event, type Agent } from '@/lib/api'
@@ -22,6 +22,16 @@ function EventDetailModal({
   getDriveLetter: (path: string) => string
 }) {
   const [showRawData, setShowRawData] = useState(false)
+
+  // Helper function to get action icon
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case 'blocked': return <Ban className="w-4 h-4" />
+      case 'alerted': return <Bell className="w-4 h-4" />
+      case 'quarantined': return <Download className="w-4 h-4" />
+      default: return <Eye className="w-4 h-4" />
+    }
+  }
 
   if (isBlockedTransfer) {
     // User-friendly display for blocked transfers
@@ -168,62 +178,243 @@ function EventDetailModal({
     )
   }
 
-  // Standard display for other event types
+  // Enhanced display for different event types
+  const eventType = event.event_type?.toLowerCase() || 'file'
+  const isClipboard = eventType === 'clipboard'
+  const isFile = eventType === 'file' && !isBlockedTransfer
+  
+  // Get content to display
+  const displayContent = isClipboard 
+    ? (event.clipboard_content || event.content || '')
+    : (event.content || event.content_redacted || '')
+  
+  // Get classification labels
+  const classificationLabels = event.classification_labels || []
+  const classification = event.classification || []
+  
+  // Get matched policies
+  const matchedPolicies = event.matched_policies || []
+  
+  // Get file metadata
+  const fileName = event.file_name || (event.file_path ? event.file_path.split(/[/\\]/).pop() : 'Unknown')
+  const fileSize = event.file_size ? formatFileSize(event.file_size) : null
+  const fileExtension = fileName.includes('.') ? fileName.split('.').pop()?.toUpperCase() : null
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-6 z-50" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h3 className="text-2xl font-bold text-gray-900">Event Details</h3>
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-xl ${
+              event.severity === 'critical' ? 'bg-red-100 border border-red-300' :
+              event.severity === 'high' ? 'bg-orange-100 border border-orange-300' :
+              'bg-yellow-100 border border-yellow-300'
+            }`}>
+              {isClipboard ? (
+                <Clipboard className={`w-8 h-8 ${event.severity === 'critical' ? 'text-red-600' : 'text-orange-600'}`} />
+              ) : (
+                <File className={`w-8 h-8 ${event.severity === 'critical' ? 'text-red-600' : 'text-orange-600'}`} />
+              )}
+            </div>
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {isClipboard ? 'Clipboard Violation' : isFile ? 'File Violation' : 'Event Details'}
+              </h3>
+              <p className="text-gray-500 text-sm mt-1">{formatDateTimeIST(event.timestamp)}</p>
+            </div>
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-6 h-6" />
           </button>
         </div>
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="text-sm text-gray-600">Description</label>
-            <p className="text-gray-900 font-medium">{event.description}</p>
+
+        <div className="p-6 space-y-6">
+          {/* Severity and Action Badges */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium uppercase ${
+              event.severity === 'critical' ? 'bg-red-100 border-red-300 text-red-700' :
+              event.severity === 'high' ? 'bg-orange-100 border-orange-300 text-orange-700' :
+              event.severity === 'medium' ? 'bg-yellow-100 border-yellow-300 text-yellow-700' :
+              'bg-green-100 border-green-300 text-green-700'
+            }`}>
+              {event.severity}
+            </span>
+            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
+              event.action_taken === 'blocked' ? 'bg-red-100 border-red-300 text-red-700' :
+              event.action_taken === 'alerted' ? 'bg-yellow-100 border-yellow-300 text-yellow-700' :
+              'bg-gray-100 border-gray-300 text-gray-700'
+            }`}>
+              {getActionIcon(event.action_taken || event.action || 'logged')}
+              {event.action_taken || event.action || 'Logged'}
+            </span>
           </div>
+
+          {/* Clipboard Event - Show Clipboard Content */}
+          {isClipboard && displayContent && (
+            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center gap-2 mb-4">
+                <Clipboard className="w-5 h-5 text-blue-600" />
+                <label className="text-sm text-gray-600 uppercase font-medium">Clipboard Content</label>
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-gray-200">
+                <p className="text-gray-900 font-mono text-sm whitespace-pre-wrap break-words">
+                  {displayContent}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* File Event - Show File Info and Content */}
+          {isFile && (
+            <>
+              {/* File Information */}
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center gap-2 mb-4">
+                  <File className="w-5 h-5 text-blue-600" />
+                  <label className="text-sm text-gray-600 uppercase font-medium">File Information</label>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">File Name</label>
+                    <p className="text-gray-900 font-semibold text-lg">{fileName}</p>
+                  </div>
+                  {event.file_path && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">File Path</label>
+                      <p className="text-gray-900 font-mono text-sm break-all">{event.file_path}</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-4">
+                    {fileSize && (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Size</label>
+                        <p className="text-gray-900 font-medium">{fileSize}</p>
+                      </div>
+                    )}
+                    {fileExtension && (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Extension</label>
+                        <p className="text-gray-900 font-medium">.{fileExtension}</p>
+                      </div>
+                    )}
+                    {event.file_hash && (
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Hash (SHA256)</label>
+                        <p className="text-gray-900 font-mono text-xs break-all" title={event.file_hash}>
+                          {event.file_hash.substring(0, 16)}...
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* File Content Snippet */}
+              {displayContent && (
+                <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Eye className="w-5 h-5 text-purple-600" />
+                    <label className="text-sm text-gray-600 uppercase font-medium">Content That Triggered Violation</label>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 border border-gray-200 max-h-64 overflow-y-auto">
+                    <pre className="text-gray-900 font-mono text-xs whitespace-pre-wrap break-words">
+                      {displayContent.length > 2000 ? displayContent.substring(0, 2000) + '\n\n... (truncated)' : displayContent}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Classification Labels - What Was Detected */}
+          {classificationLabels.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                <label className="text-sm text-gray-600 uppercase font-medium">Detected Sensitive Data</label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {classificationLabels.map((label: string, idx: number) => {
+                  const conf = classification[idx]?.confidence || event.classification_score || 1.0
+                  return (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-red-100 border-red-300 text-red-700 text-sm font-medium"
+                    >
+                      <Shield className="w-4 h-4" />
+                      {label}
+                      {conf < 1.0 && <span className="text-xs opacity-75">({Math.round(conf * 100)}%)</span>}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Matched Policies */}
+          {matchedPolicies.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+              <div className="flex items-center gap-2 mb-4">
+                <Shield className="w-5 h-5 text-indigo-600" />
+                <label className="text-sm text-gray-600 uppercase font-medium">Matched Policies</label>
+              </div>
+              <div className="space-y-3">
+                {matchedPolicies.map((policy: any, idx: number) => (
+                  <div key={idx} className="bg-white rounded-lg p-4 border border-gray-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="text-gray-900 font-semibold">{policy.policy_name || 'Unknown Policy'}</p>
+                        {policy.matched_rules && policy.matched_rules.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs text-gray-500">Matched Rules:</p>
+                            {policy.matched_rules.map((rule: any, ruleIdx: number) => (
+                              <p key={ruleIdx} className="text-xs text-gray-600 font-mono ml-2">
+                                • {rule.field} {rule.operator} {Array.isArray(rule.value) ? rule.value.join(', ') : rule.value}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                          policy.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                          policy.severity === 'high' ? 'bg-orange-100 text-orange-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {policy.severity}
+                        </span>
+                        {policy.priority && (
+                          <span className="text-xs text-gray-500">Priority: {policy.priority}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Standard Event Details Grid */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-gray-600">Event Type</label>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Event Type</label>
               <p className="text-gray-900 font-medium capitalize">{event.event_type}</p>
             </div>
-            <div>
-              <label className="text-sm text-gray-600">Severity</label>
-              <p className="text-gray-900 font-medium capitalize">{event.severity}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">Action Taken</label>
-              <p className="text-gray-900 font-medium capitalize">{event.action_taken || event.action || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">Timestamp</label>
-              <p className="text-gray-900 font-medium">{formatDateTimeIST(event.timestamp)}</p>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600">User</label>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">User</label>
               <p className="text-gray-900 font-medium">{event.user_email}</p>
             </div>
-            <div>
-              <label className="text-sm text-gray-600">Agent</label>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Agent</label>
               <p className="text-gray-900 font-medium">{event.agent_id}</p>
             </div>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Description</label>
+              <p className="text-gray-900 font-medium text-sm">{event.description || 'N/A'}</p>
+            </div>
           </div>
-          {event.file_path && (
-            <div>
-              <label className="text-sm text-gray-600">File Path</label>
-              <p className="text-gray-900 font-mono text-sm">{event.file_path}</p>
-            </div>
-          )}
-          {event.details && (
-            <div>
-              <label className="text-sm text-gray-600">Additional Details</label>
-              <p className="text-gray-900 font-mono text-sm bg-gray-50 p-4 rounded-lg">
-                {JSON.stringify(event.details, null, 2)}
-              </p>
-            </div>
-          )}
-          
+
           {/* Raw JSON Data (Expandable) */}
           <div className="border-t border-gray-200 pt-4">
             <button

@@ -181,53 +181,73 @@ async def init_opensearch() -> None:
     """
     global opensearch_client
 
-    try:
-        # Create OpenSearch client
-        client_kwargs = {
-            'hosts': [{
-                'host': settings.OPENSEARCH_HOST,
-                'port': settings.OPENSEARCH_PORT
-            }],
-            'use_ssl': settings.OPENSEARCH_USE_SSL,
-            'verify_certs': settings.OPENSEARCH_VERIFY_CERTS,
-            'ssl_show_warn': False,
-            'timeout': 30,
-            'max_retries': 3,
-            'retry_on_timeout': True
-        }
-        
-        # Only add auth if SSL is enabled (security plugin active)
-        if settings.OPENSEARCH_USE_SSL:
-            client_kwargs['http_auth'] = (settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD)
-        
-        opensearch_client = AsyncOpenSearch(**client_kwargs)
+    import asyncio
+    
+    max_retries = 5
+    retry_delay = 5  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Create OpenSearch client
+            client_kwargs = {
+                'hosts': [{
+                    'host': settings.OPENSEARCH_HOST,
+                    'port': settings.OPENSEARCH_PORT
+                }],
+                'use_ssl': settings.OPENSEARCH_USE_SSL,
+                'verify_certs': settings.OPENSEARCH_VERIFY_CERTS,
+                'ssl_show_warn': False,
+                'timeout': 30,
+                'max_retries': 3,
+                'retry_on_timeout': True
+            }
+            
+            # Only add auth if SSL is enabled (security plugin active)
+            if settings.OPENSEARCH_USE_SSL:
+                client_kwargs['http_auth'] = (settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD)
+            
+            opensearch_client = AsyncOpenSearch(**client_kwargs)
 
-        # Test connection
-        info = await opensearch_client.info()
-        logger.info(
-            "OpenSearch connection established",
-            cluster_name=info.get('cluster_name'),
-            version=info.get('version', {}).get('number'),
-            host=settings.OPENSEARCH_HOST
-        )
+            # Test connection
+            info = await opensearch_client.info()
+            logger.info(
+                "OpenSearch connection established",
+                cluster_name=info.get('cluster_name'),
+                version=info.get('version', {}).get('number'),
+                host=settings.OPENSEARCH_HOST,
+                attempt=attempt + 1
+            )
 
-        # Create index template for events
-        await create_index_template()
+            # Create index template for events
+            await create_index_template()
 
-        # Create today's index
-        await ensure_daily_index()
+            # Create today's index
+            await ensure_daily_index()
 
-        logger.info("OpenSearch initialization complete")
+            logger.info("OpenSearch initialization complete")
+            return  # Success - exit function
 
-    except Exception as e:
-        logger.warning(
-            "Failed to connect to OpenSearch - continuing without it",
-            error=str(e),
-            host=settings.OPENSEARCH_HOST
-        )
-        # Set client to None to indicate OpenSearch is unavailable
-        opensearch_client = None
-        # DO NOT raise - allow server to start without OpenSearch
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.debug(
+                    "OpenSearch connection attempt failed, retrying",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error=str(e),
+                    host=settings.OPENSEARCH_HOST
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                # Final attempt failed
+                logger.warning(
+                    "Failed to connect to OpenSearch after all retries - continuing without it",
+                    error=str(e),
+                    host=settings.OPENSEARCH_HOST,
+                    attempts=max_retries
+                )
+                # Set client to None to indicate OpenSearch is unavailable
+                opensearch_client = None
+                # DO NOT raise - allow server to start without OpenSearch
 
 
 async def close_opensearch() -> None:
