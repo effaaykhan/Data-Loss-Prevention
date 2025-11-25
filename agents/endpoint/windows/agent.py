@@ -352,12 +352,36 @@ class DLPAgent:
         file_policies = policies.get("file_system_monitoring", [])
         clipboard_policies = policies.get("clipboard_monitoring", [])
         usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
+        google_drive_local_policies = policies.get("google_drive_local_monitoring", [])
 
         new_file_paths: List[str] = []
         for policy in file_policies + usb_transfer_policies:
             config = policy.get("config", {})
             paths = config.get("monitoredPaths", [])
             new_file_paths.extend(paths)
+        
+        # Process Google Drive local monitoring policies
+        for policy in google_drive_local_policies:
+            config = policy.get("config", {})
+            base_path = config.get("basePath", "G:\\")
+            # Ensure base_path ends with backslash
+            if not base_path.endswith("\\"):
+                base_path = base_path + "\\"
+            
+            monitored_folders = config.get("monitoredFolders", [])
+            if monitored_folders:
+                for folder in monitored_folders:
+                    # Normalize folder path
+                    folder = folder.strip().replace("/", "\\").strip("\\")
+                    if folder:
+                        full_path = base_path + folder
+                        if not full_path.endswith("\\"):
+                            full_path = full_path + "\\"
+                        new_file_paths.append(full_path)
+            else:
+                # If no folders specified, monitor entire base path
+                new_file_paths.append(base_path)
+        
         self.policy_file_paths = list(dict.fromkeys(new_file_paths))
         self.policy_clipboard_rules = clipboard_policies
         self.usb_transfer_policies = usb_transfer_policies
@@ -586,23 +610,72 @@ class DLPAgent:
                     return
             
             logger.info(f"File event detected: {event_type} - {file_path}")
-            # Get file info
-            file_size = os.path.getsize(file_path)
+
             max_size = self.config.get("classification", {}).get("max_file_size_mb", 10) * 1024 * 1024
+            retry_attempts = self.config.get("file_access_retries", 3)
+            retry_delay = self.config.get("file_access_retry_delay", 1.0)
+
+            file_size = None
+            for attempt in range(retry_attempts):
+                try:
+                    file_size = os.path.getsize(file_path)
+                    break
+                except PermissionError:
+                    if attempt < retry_attempts - 1:
+                        wait_time = retry_delay * (attempt + 1)
+                        logger.warning(
+                            f"File locked when checking size (attempt {attempt + 1}/{retry_attempts}) - {file_path}. "
+                            f"Retrying in {wait_time:.1f}s"
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Unable to read file size due to permissions: {file_path}")
+            if file_size is None:
+                logger.error(f"Unable to read file size after retries, continuing with 0 bytes: {file_path}")
+                file_size = 0
+                access_denied = True
+            else:
+                access_denied = False
 
             if file_size > max_size:
                 logger.debug(f"File too large, skipping: {file_path}")
                 return
 
-            # Calculate file hash
-            file_hash = self._calculate_file_hash(file_path)
+            # Attempt to read file metadata/content, retrying if Google Drive still locks the file
+            file_hash = ""
+            content = ""
+            # Preserve existing flag if we already hit access issues determining size
+            access_denied_flag = access_denied
 
-            # Read content for classification
-            content = self._read_file_content(file_path, max_bytes=100000)
+            for attempt in range(retry_attempts):
+                try:
+                    file_hash = self._calculate_file_hash(file_path)
+                    content = self._read_file_content(file_path, max_bytes=100000)
+                    access_denied_flag = False
+                    break
+                except PermissionError:
+                    access_denied_flag = True
+                    if attempt < retry_attempts - 1:
+                        wait_time = retry_delay * (attempt + 1)
+                        logger.warning(
+                            f"File locked (attempt {attempt + 1}/{retry_attempts}) - {file_path}. "
+                            f"Retrying in {wait_time:.1f}s"
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(
+                            f"Permission denied after {retry_attempts} attempts. "
+                            f"Sending event without content/hash: {file_path}"
+                        )
+
             content_snippet = content[:5000] if content else None
 
             # Classify content (simplified - in production, call server API)
-            classification = self._classify_content(content)
+            classification = self._classify_content(content or "")
+
+            # Check if this is a Google Drive local event (G:\ drive)
+            is_google_drive_local = file_path.upper().startswith("G:\\")
+            source_type_value = "google_drive_local" if is_google_drive_local else "endpoint"
 
             # Send event to server
             event_data = {
@@ -610,7 +683,8 @@ class DLPAgent:
                 "event_type": "file",
                 "event_subtype": event_type,
                 "agent_id": self.agent_id,
-                "source_type": "agent",
+                "source_type": source_type_value,
+                "source": "google_drive_local" if is_google_drive_local else "file_system",
                 "user_email": f"{os.getlogin()}@{socket.gethostname()}",
                 "description": f"{event_type}: {Path(file_path).name}",
                 "severity": classification.get("severity", "low"),
@@ -627,6 +701,8 @@ class DLPAgent:
 
             if self.active_policy_version:
                 event_data["policy_version"] = self.active_policy_version
+            if access_denied_flag:
+                event_data["content_access_denied"] = True
 
             logger.info(f"Sending file event: {event_type} - {Path(file_path).name} - Severity: {classification.get('severity', 'low')}")
             self.send_event(event_data)

@@ -32,51 +32,39 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         try:
-            # Get Redis client
             cache = get_cache()
-
-            # Create rate limit key
             key = f"rate_limit:{client_ip}"
-
-            # Increment counter
             current = await cache.incr(key)
 
-            # Set expiration on first request
             if current == 1:
                 await cache.expire(key, self.window_seconds)
-
-            # Check if limit exceeded
-            if current > self.max_requests:
-                logger.warning(
-                    "Rate limit exceeded",
-                    client_ip=client_ip,
-                    requests=current,
-                    limit=self.max_requests,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="Too many requests. Please try again later.",
-                    headers={
-                        "Retry-After": str(self.window_seconds),
-                        "X-RateLimit-Limit": str(self.max_requests),
-                        "X-RateLimit-Remaining": "0",
-                    },
-                )
-
-            # Process request
-            response = await call_next(request)
-
-            # Add rate limit headers
-            response.headers["X-RateLimit-Limit"] = str(self.max_requests)
-            response.headers["X-RateLimit-Remaining"] = str(
-                max(0, self.max_requests - current)
-            )
-
-            return response
-
-        except HTTPException:
-            raise
         except Exception as e:
-            # If Redis fails, allow request to proceed
+            # If Redis fails, allow request to proceed once
             logger.error("Rate limiting error", error=str(e))
             return await call_next(request)
+
+        if current > self.max_requests:
+            logger.warning(
+                "Rate limit exceeded",
+                client_ip=client_ip,
+                requests=current,
+                limit=self.max_requests,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+                headers={
+                    "Retry-After": str(self.window_seconds),
+                    "X-RateLimit-Limit": str(self.max_requests),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+
+        response = await call_next(request)
+
+        response.headers["X-RateLimit-Limit"] = str(self.max_requests)
+        response.headers["X-RateLimit-Remaining"] = str(
+            max(0, self.max_requests - current)
+        )
+
+        return response

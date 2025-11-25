@@ -7,9 +7,24 @@ import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.types import CHAR
 
 from app.core.database import Base
 from app.core.config import settings
+
+
+@compiles(postgresql.UUID, "sqlite")
+def compile_uuid_sqlite(element, compiler, **kwargs):
+    """Render PostgreSQL UUID columns as CHAR(36) for SQLite tests."""
+    return "CHAR(36)"
+
+
+@compiles(postgresql.INET, "sqlite")
+def compile_inet_sqlite(element, compiler, **kwargs):
+    """Render PostgreSQL INET columns as TEXT for SQLite tests."""
+    return "TEXT"
 
 
 # Test database URL (in-memory SQLite for fast tests)

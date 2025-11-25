@@ -5,7 +5,20 @@ Main API router aggregating all endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, events, policies, users, dashboard, alerts, agents, classification, analytics, export, siem
+from app.api.v1 import (
+    auth,
+    events,
+    policies,
+    users,
+    dashboard,
+    alerts,
+    agents,
+    classification,
+    analytics,
+    export,
+    siem,
+    google_drive,
+)
 
 api_router = APIRouter()
 
@@ -29,3 +42,4 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboar
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
 api_router.include_router(siem.router, prefix="/siem", tags=["SIEM"])
+api_router.include_router(google_drive.router, tags=["Google Drive"])

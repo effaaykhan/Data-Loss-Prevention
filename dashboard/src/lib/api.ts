@@ -116,6 +116,11 @@ export const clearAllEvents = async () => {
   return data
 }
 
+export const initiateGoogleDriveConnection = async () => {
+  const { data } = await apiClient.post('/google-drive/connect')
+  return data as { auth_url: string; state: string }
+}
+
 // Type exports
 export type Agent = {
   id?: string

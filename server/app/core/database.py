@@ -159,3 +159,17 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # Import text for raw SQL queries
 from sqlalchemy import text
+
+def get_db_session():
+    """
+    Legacy synchronous wrapper for getting database session.
+    Used by Celery tasks that haven't been fully migrated to async.
+    """
+    if not postgres_session_factory:
+        raise RuntimeError("Database not initialized")
+    
+    # Return a generator that yields a session
+    # Note: The consumer is responsible for closing it
+    session = postgres_session_factory()
+    yield session
+

@@ -19,7 +19,7 @@ class Policy(Base):
     enabled = Column(Boolean, default=True, nullable=False)
     priority = Column(Integer, default=100, nullable=False)
     # Frontend format fields (Option B: Extend Database)
-    type = Column(String(50), nullable=True)  # 'clipboard_monitoring', 'file_system_monitoring', 'usb_device_monitoring', 'usb_file_transfer_monitoring'
+    type = Column(String(50), nullable=True)  # 'clipboard_monitoring', 'file_system_monitoring', 'usb_device_monitoring', 'usb_file_transfer_monitoring', 'google_drive_local_monitoring'
     severity = Column(String(20), nullable=True)  # 'low', 'medium', 'high', 'critical'
     config = Column(JSON, nullable=True)  # Frontend config format (type-specific)
     # Backend format fields (existing)

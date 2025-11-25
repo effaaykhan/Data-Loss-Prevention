@@ -148,6 +148,92 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: cybersentinel-celery-worker
+    networks:
+      - cybersentinel-net
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dlp_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=cybersentinel_dlp
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USER=dlp_user
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD}
+      - MONGODB_DB=cybersentinel_dlp
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
+      - OPENSEARCH_USE_SSL=false
+      - OPENSEARCH_VERIFY_CERTS=false
+    volumes:
+      - ./server:/app
+      - ./config:/etc/cybersentinel
+      - ./ml/models:/app/ml/models
+      - ./quarantine:/app/quarantine
+      - manager_logs:/var/log/cybersentinel
+    command: celery -A app.tasks.reporting_tasks worker --loglevel=info
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Beat
+  celery-beat:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: cybersentinel-celery-beat
+    networks:
+      - cybersentinel-net
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=dlp_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=cybersentinel_dlp
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USER=dlp_user
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD}
+      - MONGODB_DB=cybersentinel_dlp
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - OPENSEARCH_USER=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-CyberSentinel2025!}
+      - OPENSEARCH_USE_SSL=false
+      - OPENSEARCH_VERIFY_CERTS=false
+    volumes:
+      - ./server:/app
+      - ./config:/etc/cybersentinel
+      - manager_logs:/var/log/cybersentinel
+    command: celery -A app.tasks.reporting_tasks beat --loglevel=info
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Dashboard (React + TypeScript)
   dashboard:
     build:

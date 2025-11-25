@@ -313,11 +313,43 @@ Comprehensive testing of both local and cloud monitoring, plus UI polish.
 
 ---
 
-## Current Status: Phase 1 - In Progress
+## Current Status: Phase 6 - In Progress
 
-### Phase 1 Tasks
-- [ ] Backend policy type support
-- [ ] Frontend policy form
-- [ ] Agent integration
-- [ ] Event processing
-- [ ] Testing
+### Phase 1 Tasks (Completed ✅)
+- [x] Backend policy type support
+- [x] Frontend policy form
+- [x] Agent integration
+- [x] Event processing
+- [x] Testing
+
+### Phase 2 Tasks (Completed ✅)
+- [x] Alembic migration for Google Drive tables (`google_drive_connections`, `google_drive_protected_folders`)
+- [x] SQLAlchemy models for Google Drive entities with helpers (token encryption, relationships)
+- [x] Basic migration/model smoke tests
+
+### Phase 3 Tasks (Completed ✅)
+- [x] Add Google OAuth service module (`server/app/services/google_drive_oauth.py`)
+- [x] Wire dependencies & env vars
+- [x] Build API router (`server/app/api/v1/google_drive.py`)
+- [x] Register router in `app/main.py`
+- [x] Frontend connection test button (Settings page)
+- [x] Fix OAuth scopes for user profile
+
+### Phase 4 Tasks (Completed ✅)
+- [x] Implement polling service (`server/app/services/google_drive_polling.py`)
+- [x] Build normalizer (`server/app/services/google_drive_event_normalizer.py`)
+- [x] Add persistence hook
+- [x] Unit/integration tests for polling
+
+### Phase 5 Tasks (Completed ✅)
+- [x] Create Celery task (`google_drive_polling_tasks.py`)
+- [x] Add task to Celery Beat schedule (`reporting_tasks.py`)
+- [x] Update Docker Compose with Celery services
+- [x] Verify task execution
+
+### Phase 6 Tasks
+- [ ] Update policy types interface
+- [ ] Create ProtectedFolderSelector component
+- [ ] Create PollingIntervalSettings component
+- [ ] Create GoogleDriveCloudPolicyForm
+- [ ] Update backend policy transformers

@@ -9,6 +9,7 @@ from app.models.agent import Agent
 from app.models.event import Event
 from app.models.alert import Alert
 from app.models.classified_file import ClassifiedFile
+from app.models.google_drive import GoogleDriveConnection, GoogleDriveProtectedFolder
 
 __all__ = [
     "User",
@@ -18,4 +19,6 @@ __all__ = [
     "Event",
     "Alert",
     "ClassifiedFile",
+    "GoogleDriveConnection",
+    "GoogleDriveProtectedFolder",
 ]

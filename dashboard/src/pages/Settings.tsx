@@ -1,6 +1,24 @@
-import { Settings as SettingsIcon, Server, Database, Bell } from 'lucide-react'
+import { useState } from 'react'
+import { Settings as SettingsIcon, Server, Database, Bell, Globe } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { initiateGoogleDriveConnection } from '@/lib/api'
 
 export default function Settings() {
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false)
+
+  const handleDriveConnect = async () => {
+    try {
+      setIsConnectingDrive(true)
+      const { auth_url } = await initiateGoogleDriveConnection()
+      window.open(auth_url, '_blank', 'noopener,noreferrer')
+      toast.success('Opened Google consent screen')
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to start Google Drive auth')
+    } finally {
+      setIsConnectingDrive(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -145,6 +163,26 @@ export default function Settings() {
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Cloud Connectors */}
+        <div className="card">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-emerald-100 rounded-lg">
+              <Globe className="h-5 w-5 text-emerald-600" />
+            </div>
+            <h3 className="font-semibold text-gray-900">Cloud Connectors</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Use this temporary action to open the Google Drive OAuth flow for testing. We&apos;ll relocate it once the full UI ships.
+          </p>
+          <button
+            onClick={handleDriveConnect}
+            disabled={isConnectingDrive}
+            className="px-4 py-2 rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {isConnectingDrive ? 'Opening...' : 'Connect Google Drive'}
+          </button>
         </div>
 
         {/* About */}

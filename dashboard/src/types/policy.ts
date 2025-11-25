@@ -8,6 +8,7 @@ export type PolicyType =
   | 'file_system_monitoring'
   | 'usb_device_monitoring'
   | 'usb_file_transfer_monitoring'
+  | 'google_drive_local_monitoring'
 
 export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical'
 export type ClipboardAction = 'alert' | 'log'
@@ -52,7 +53,22 @@ export interface USBTransferConfig {
   quarantinePath?: string
 }
 
-export type PolicyConfig = ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig
+export interface GoogleDriveLocalConfig {
+  basePath: string  // Default: "G:\\My Drive\\"
+  monitoredFolders: string[]  // Subfolders within basePath
+  fileExtensions?: string[]
+  events: {
+    create: boolean
+    modify: boolean
+    delete: boolean
+    move: boolean
+    copy: boolean
+  }
+  action: FileSystemAction
+  quarantinePath?: string
+}
+
+export type PolicyConfig = ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig
 
 export interface Policy {
   id: string

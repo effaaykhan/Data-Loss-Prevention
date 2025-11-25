@@ -1,7 +1,7 @@
 'use client'
 
 import { PolicyType } from '@/types/policy'
-import { Clipboard, FileText, Usb, HardDrive } from 'lucide-react'
+import { Clipboard, FileText, Usb, HardDrive, Cloud } from 'lucide-react'
 
 interface PolicyTypeSelectorProps {
   selectedType: PolicyType | null
@@ -37,6 +37,12 @@ const policyTypes: Array<{
     label: 'USB File Transfer Monitoring',
     description: 'Monitor and control file transfers to USB',
     icon: HardDrive
+  },
+  {
+    type: 'google_drive_local_monitoring',
+    label: 'Google Drive (Local)',
+    description: 'Monitor Windows G:\\My Drive (Google Drive desktop app)',
+    icon: Cloud
   }
 ]
 

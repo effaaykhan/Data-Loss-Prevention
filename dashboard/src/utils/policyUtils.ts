@@ -12,7 +12,7 @@ import {
   USBDeviceConfig, 
   USBTransferConfig 
 } from '@/types/policy'
-import { Clipboard, FileText, Usb, HardDrive } from 'lucide-react'
+import { Clipboard, FileText, Usb, HardDrive, Cloud } from 'lucide-react'
 
 /**
  * Get icon component for policy type
@@ -27,6 +27,8 @@ export const getPolicyTypeIcon = (type: PolicyType) => {
       return Usb
     case 'usb_file_transfer_monitoring':
       return HardDrive
+    case 'google_drive_local_monitoring':
+      return Cloud
     default:
       return FileText
   }
@@ -45,6 +47,8 @@ export const getPolicyTypeLabel = (type: PolicyType): string => {
       return 'USB Device Monitoring'
     case 'usb_file_transfer_monitoring':
       return 'USB File Transfer Monitoring'
+    case 'google_drive_local_monitoring':
+      return 'Google Drive (Local)'
     default:
       return 'Unknown'
   }
@@ -103,6 +107,18 @@ export const formatPolicyConfig = (policy: Policy): string => {
         ? `${c.monitoredPaths.length} path(s)`
         : 'No paths'
       return `Paths: ${paths} | Action: ${c.action}`
+    }
+    
+    case 'google_drive_local_monitoring': {
+      const c = config as any
+      const folders = c.monitoredFolders && c.monitoredFolders.length > 0
+        ? `${c.monitoredFolders.length} folder(s)`
+        : 'Entire drive'
+      const events = Object.entries(c.events || {})
+        .filter(([_, enabled]) => enabled)
+        .map(([event]) => event.charAt(0).toUpperCase() + event.slice(1))
+        .join(', ')
+      return `Base: ${c.basePath || 'G:\\My Drive\\'} | Folders: ${folders} | Events: ${events || 'None'} | Action: ${c.action}`
     }
     
     default:
@@ -320,6 +336,14 @@ const getDefaultConfig = (type: PolicyType): any => {
       return { events: { connect: false, disconnect: false, fileTransfer: false }, action: 'alert' }
     case 'usb_file_transfer_monitoring':
       return { monitoredPaths: [], action: 'block' }
+    case 'google_drive_local_monitoring':
+      return {
+        basePath: 'G:\\My Drive\\',
+        monitoredFolders: [],
+        fileExtensions: [],
+        events: { create: true, modify: false, delete: false, move: false, copy: false },
+        action: 'alert'
+      }
     default:
       return {}
   }

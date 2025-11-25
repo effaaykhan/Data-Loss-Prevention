@@ -159,6 +159,12 @@ class Settings(BaseSettings):
     FEATURE_REAL_TIME_BLOCKING: bool = Field(default=True)
     FEATURE_CLOUD_CONNECTORS: bool = Field(default=True)
 
+    # Google Drive OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
+    GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    GOOGLE_REDIRECT_URI: Optional[str] = Field(default=None)
+    GOOGLE_OAUTH_CREDENTIALS_PATH: Optional[str] = Field(default="credentials.json")
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):

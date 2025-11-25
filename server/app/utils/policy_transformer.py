@@ -27,6 +27,8 @@ def transform_frontend_config_to_backend(
         return _transform_usb_device_config(config)
     elif policy_type == "usb_file_transfer_monitoring":
         return _transform_usb_transfer_config(config)
+    elif policy_type == "google_drive_local_monitoring":
+        return _transform_google_drive_local_config(config)
     else:
         # Unknown type, return empty defaults
         return (
@@ -221,6 +223,145 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
     return conditions, actions
 
 
+def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Transform Google Drive local monitoring config to backend format
+
+    Frontend format:
+    {
+        "basePath": "G:\\My Drive\\",  // Default: "G:\\My Drive\\"
+        "monitoredFolders": ["Folder1", "Folder2/Subfolder"],
+        "fileExtensions": [".pdf", ".docx"],  // Optional
+        "events": {
+            "create": true,
+            "modify": true,
+            "delete": false,
+            "move": true,
+            "copy": false
+        },
+        "action": "alert" | "quarantine" | "block" | "log",
+        "quarantinePath": "C:\\Quarantine" (optional)
+    }
+
+    Backend format:
+    conditions: {
+        "match": "all",
+        "rules": [
+            {"field": "file_path", "operator": "matches_any_prefix", "value": ["G:\\My Drive\\Folder1", "G:\\My Drive\\Folder2\\Subfolder"]},
+            {"field": "source", "operator": "equals", "value": "google_drive_local"},
+            {"field": "event_subtype", "operator": "in", "value": ["file_created", "file_modified", ...]},
+            {"field": "file_extension", "operator": "in", "value": [".pdf", ...]} (if specified)
+        ]
+    }
+    actions: {
+        "alert": {} | "quarantine": {"path": "..."} | "block": {} | "log": {}
+    }
+    """
+    base_path = config.get("basePath", "G:\\My Drive\\")
+    # Ensure base_path ends with backslash
+    if not base_path.endswith("\\"):
+        base_path = base_path + "\\"
+    
+    monitored_folders = config.get("monitoredFolders", [])
+    file_extensions = config.get("fileExtensions", [])
+    events = config.get("events", {})
+    action = config.get("action", "log")
+    quarantine_path = config.get("quarantinePath")
+
+    rules = []
+
+    # Build full paths from basePath + monitoredFolders
+    full_paths = []
+    if monitored_folders:
+        for folder in monitored_folders:
+            # Normalize folder path (remove leading/trailing slashes, normalize separators)
+            folder = folder.strip().replace("/", "\\").strip("\\")
+            if folder:
+                full_path = base_path + folder
+                # Ensure path ends with backslash for directory matching
+                if not full_path.endswith("\\"):
+                    full_path = full_path + "\\"
+                full_paths.append(full_path)
+    else:
+        # If no folders specified, monitor entire base path
+        full_paths.append(base_path)
+
+    # Add path rules
+    if full_paths:
+        if len(full_paths) == 1:
+            rules.append(
+                {
+                    "field": "file_path",
+                    "operator": "starts_with",
+                    "value": full_paths[0],
+                }
+            )
+        else:
+            rules.append(
+                {
+                    "field": "file_path",
+                    "operator": "matches_any_prefix",
+                    "value": full_paths,
+                }
+            )
+
+    # Add source tag rule to identify Google Drive local events
+    rules.append(
+        {
+            "field": "source",
+            "operator": "equals",
+            "value": "google_drive_local",
+        }
+    )
+
+    # Add event type rules
+    event_name_map = {
+        "create": "file_created",
+        "modify": "file_modified",
+        "delete": "file_deleted",
+        "move": "file_moved",
+        "copy": "file_copied",
+    }
+    enabled_events = [
+        event_name_map.get(event, event)
+        for event, enabled in events.items()
+        if enabled
+    ]
+    if enabled_events:
+        rules.append(
+            {
+                "field": "event_subtype",
+                "operator": "in",
+                "value": enabled_events,
+            }
+        )
+
+    # Add file extension rules (if specified)
+    if file_extensions:
+        rules.append(
+            {
+                "field": "file_extension",
+                "operator": "in",
+                "value": file_extensions,
+            }
+        )
+
+    # Build conditions
+    conditions = {
+        "match": "all",
+        "rules": rules,
+    }
+
+    # Build actions
+    actions = {}
+    if action == "quarantine" and quarantine_path:
+        actions["quarantine"] = {"path": quarantine_path}
+    else:
+        actions[action] = {}
+
+    return conditions, actions
+
+
 def _transform_usb_device_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Transform USB device monitoring config to backend format
@@ -335,6 +476,145 @@ def _transform_usb_transfer_config(config: Dict[str, Any]) -> Tuple[Dict[str, An
             "value": "removable_drive",
         }
     )
+
+    # Build conditions
+    conditions = {
+        "match": "all",
+        "rules": rules,
+    }
+
+    # Build actions
+    actions = {}
+    if action == "quarantine" and quarantine_path:
+        actions["quarantine"] = {"path": quarantine_path}
+    else:
+        actions[action] = {}
+
+    return conditions, actions
+
+
+def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Transform Google Drive local monitoring config to backend format
+
+    Frontend format:
+    {
+        "basePath": "G:\\",  // Default: "G:\\"
+        "monitoredFolders": ["Folder1", "Folder2/Subfolder"],
+        "fileExtensions": [".pdf", ".docx"],  // Optional
+        "events": {
+            "create": true,
+            "modify": true,
+            "delete": false,
+            "move": true,
+            "copy": false
+        },
+        "action": "alert" | "quarantine" | "block" | "log",
+        "quarantinePath": "C:\\Quarantine" (optional)
+    }
+
+    Backend format:
+    conditions: {
+        "match": "all",
+        "rules": [
+            {"field": "file_path", "operator": "matches_any_prefix", "value": ["G:\\Folder1", "G:\\Folder2\\Subfolder"]},
+            {"field": "source", "operator": "equals", "value": "google_drive_local"},
+            {"field": "event_subtype", "operator": "in", "value": ["file_created", "file_modified", ...]},
+            {"field": "file_extension", "operator": "in", "value": [".pdf", ...]} (if specified)
+        ]
+    }
+    actions: {
+        "alert": {} | "quarantine": {"path": "..."} | "block": {} | "log": {}
+    }
+    """
+    base_path = config.get("basePath", "G:\\My Drive\\")
+    # Ensure base_path ends with backslash
+    if not base_path.endswith("\\"):
+        base_path = base_path + "\\"
+    
+    monitored_folders = config.get("monitoredFolders", [])
+    file_extensions = config.get("fileExtensions", [])
+    events = config.get("events", {})
+    action = config.get("action", "log")
+    quarantine_path = config.get("quarantinePath")
+
+    rules = []
+
+    # Build full paths from basePath + monitoredFolders
+    full_paths = []
+    if monitored_folders:
+        for folder in monitored_folders:
+            # Normalize folder path (remove leading/trailing slashes, normalize separators)
+            folder = folder.strip().replace("/", "\\").strip("\\")
+            if folder:
+                full_path = base_path + folder
+                # Ensure path ends with backslash for directory matching
+                if not full_path.endswith("\\"):
+                    full_path = full_path + "\\"
+                full_paths.append(full_path)
+    else:
+        # If no folders specified, monitor entire base path
+        full_paths.append(base_path)
+
+    # Add path rules
+    if full_paths:
+        if len(full_paths) == 1:
+            rules.append(
+                {
+                    "field": "file_path",
+                    "operator": "starts_with",
+                    "value": full_paths[0],
+                }
+            )
+        else:
+            rules.append(
+                {
+                    "field": "file_path",
+                    "operator": "matches_any_prefix",
+                    "value": full_paths,
+                }
+            )
+
+    # Add source tag rule to identify Google Drive local events
+    rules.append(
+        {
+            "field": "source",
+            "operator": "equals",
+            "value": "google_drive_local",
+        }
+    )
+
+    # Add event type rules
+    event_name_map = {
+        "create": "file_created",
+        "modify": "file_modified",
+        "delete": "file_deleted",
+        "move": "file_moved",
+        "copy": "file_copied",
+    }
+    enabled_events = [
+        event_name_map.get(event, event)
+        for event, enabled in events.items()
+        if enabled
+    ]
+    if enabled_events:
+        rules.append(
+            {
+                "field": "event_subtype",
+                "operator": "in",
+                "value": enabled_events,
+            }
+        )
+
+    # Add file extension rules (if specified)
+    if file_extensions:
+        rules.append(
+            {
+                "field": "file_extension",
+                "operator": "in",
+                "value": file_extensions,
+            }
+        )
 
     # Build conditions
     conditions = {
