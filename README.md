@@ -55,6 +55,7 @@ CyberSentinel DLP is a comprehensive data loss prevention platform designed for 
   - File system monitoring (real-time)
   - Clipboard monitoring
   - USB device detection
+  - Google Drive cloud monitoring (OAuth integration)
   - Network traffic inspection
 
 - **Compliance Frameworks**
@@ -64,13 +65,14 @@ CyberSentinel DLP is a comprehensive data loss prevention platform designed for 
   - **SOX** (financial reporting)
 
 - **Automated Response Actions**
-  - Block file transfers
+  - Block file transfers (USB, network)
   - Alert administrators (email, SMS)
   - Create JIRA tickets automatically
   - Send Slack/Teams notifications
   - Forward to SIEM systems (ELK, Splunk)
   - Quarantine suspicious data
   - Generate incident reports
+  - Monitor Google Drive activity (file created, modified, deleted, moved)
 
 ### Advanced Features
 
@@ -146,8 +148,8 @@ The easiest way to deploy CyberSentinel DLP is using Docker Compose.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/effaaykhan/cybersentinel-dlp.git
-cd cybersentinel-dlp
+git clone https://github.com/effaaykhan/Data-Loss-Prevention.git
+cd Data-Loss-Prevention
 
 # 2. Configure environment
 cp .env.example .env
@@ -522,6 +524,15 @@ POST   /api/v1/policies             # Create policy
 GET    /api/v1/policies             # List policies
 PUT    /api/v1/policies/{id}        # Update policy
 DELETE /api/v1/policies/{id}        # Delete policy
+```
+
+#### Google Drive Integration
+```bash
+POST   /api/v1/google-drive/connect                    # Initiate OAuth flow
+GET    /api/v1/google-drive/connections                # List connections
+GET    /api/v1/google-drive/connections/{id}/folders   # List folders
+POST   /api/v1/google-drive/connections/{id}/baseline  # Reset baseline
+POST   /api/v1/google-drive/poll                       # Manual refresh
 ```
 
 #### Analytics & Reporting

@@ -43,6 +43,12 @@ const policyTypes: Array<{
     label: 'Google Drive (Local)',
     description: 'Monitor Windows G:\\My Drive (Google Drive desktop app)',
     icon: Cloud
+  },
+  {
+    type: 'google_drive_cloud_monitoring',
+    label: 'Google Drive (Cloud)',
+    description: 'Monitor Google Drive via Cloud API (OAuth required)',
+    icon: Cloud
   }
 ]
 
@@ -50,7 +56,7 @@ export default function PolicyTypeSelector({ selectedType, onSelectType }: Polic
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-white mb-2">Select Policy Type</h3>
+        <h3 className="text-lg font-semibold text-white mb-2">Select Policy Type (v2)</h3>
         <p className="text-sm text-gray-400">Choose the type of monitoring policy you want to create</p>
       </div>
       

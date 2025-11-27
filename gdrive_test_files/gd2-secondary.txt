@@ -1,0 +1,2 @@
+Secondary file before move
+Revised content after move to /test

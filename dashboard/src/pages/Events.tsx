@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2, Clipboard, Eye, Bell, Download } from 'lucide-react'
+import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2, Clipboard, Eye, Bell, Download, RefreshCcw, Loader2 } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
-import { searchEvents, getAgents, clearAllEvents, type Event, type Agent } from '@/lib/api'
+import { searchEvents, getAgents, clearAllEvents, triggerGoogleDrivePoll, type Event, type Agent } from '@/lib/api'
 import { formatDate, getSeverityColor, cn, truncate, formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -219,7 +219,12 @@ function EventDetailModal({
             </div>
             <div>
               <h3 className="text-2xl font-bold text-gray-900">
-                {isClipboard ? 'Clipboard Violation' : isFile ? 'File Violation' : 'Event Details'}
+                {isClipboard ? 'Clipboard Violation' : isFile ? (
+                  // Show action type for file events (Google Drive or regular file events)
+                  event.event_subtype ? (
+                    event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                  ) : event.description || 'File Violation'
+                ) : 'Event Details'}
               </h3>
               <p className="text-gray-500 text-sm mt-1">{formatDateTimeIST(event.timestamp)}</p>
             </div>
@@ -240,6 +245,13 @@ function EventDetailModal({
             }`}>
               {event.severity}
             </span>
+            {/* Show event subtype/action for Google Drive events */}
+            {event.event_subtype && (
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium bg-blue-100 border-blue-300 text-blue-700">
+                <File className="w-4 h-4" />
+                {event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </span>
+            )}
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
               event.action_taken === 'blocked' ? 'bg-red-100 border-red-300 text-red-700' :
               event.action_taken === 'alerted' ? 'bg-yellow-100 border-yellow-300 text-yellow-700' :
@@ -399,7 +411,9 @@ function EventDetailModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Event Type</label>
-              <p className="text-gray-900 font-medium capitalize">{event.event_type}</p>
+              <p className="text-gray-900 font-medium capitalize">
+                {event.event_subtype ? event.event_subtype.replace(/_/g, ' ') : event.event_type}
+              </p>
             </div>
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">User</label>
@@ -443,6 +457,7 @@ export default function Events() {
   const [activeQuery, setActiveQuery] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // Fetch agents to map agent_id to agent name
   const { data: agentsData } = useQuery({
@@ -550,6 +565,25 @@ export default function Events() {
     }
   }
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      const response = await triggerGoogleDrivePoll()
+      if (response?.status === 'queued') {
+        toast.success('Google Drive polling queued. Refreshing events…')
+      } else if (response?.status === 'skipped') {
+        toast.success(response?.message || 'No Google Drive policies configured. Events refreshed.')
+      } else {
+        toast.success(response?.message || 'Manual refresh triggered.')
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to start manual refresh')
+    } finally {
+      await refetch()
+      setIsRefreshing(false)
+    }
+  }
+
   // Quick filter examples
   const quickFilters = [
     { label: 'Critical Events', query: 'event.severity:critical' },
@@ -631,7 +665,7 @@ export default function Events() {
       {/* Results */}
       <div className="card p-0">
         {/* Results Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h3 className="font-semibold text-gray-900">Search Results</h3>
             <p className="text-sm text-gray-600 mt-1">
@@ -643,14 +677,28 @@ export default function Events() {
               )}
             </p>
           </div>
-          <button
-            onClick={handleClearLogs}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={events.length === 0}
-          >
-            <Trash2 className="w-4 h-4" />
-            Clear Logs
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleManualRefresh}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isRefreshing}
+            >
+              {isRefreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCcw className="w-4 h-4" />
+              )}
+              Manual Refresh
+            </button>
+            <button
+              onClick={handleClearLogs}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={events.length === 0}
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear Logs
+            </button>
+          </div>
         </div>
 
         {/* Results List */}
@@ -744,6 +792,23 @@ export default function Events() {
                         <strong>File:</strong> {truncate(event.file_path, 80)}
                       </p>
                     )}
+
+                    {Array.isArray(event.matched_policies) &&
+                      event.matched_policies.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {event.matched_policies
+                            .map((policy: any) => policy?.policy_name)
+                            .filter(Boolean)
+                            .map((name: string) => (
+                              <span
+                                key={`${event.id}-policy-${name}`}
+                                className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800"
+                              >
+                                {name}
+                              </span>
+                            ))}
+                        </div>
+                      )}
 
                     {event.usb && (
                       <p className="mt-2 text-sm text-gray-700">

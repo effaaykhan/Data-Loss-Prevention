@@ -29,6 +29,8 @@ export const getPolicyTypeIcon = (type: PolicyType) => {
       return HardDrive
     case 'google_drive_local_monitoring':
       return Cloud
+    case 'google_drive_cloud_monitoring':
+      return Cloud
     default:
       return FileText
   }
@@ -49,6 +51,8 @@ export const getPolicyTypeLabel = (type: PolicyType): string => {
       return 'USB File Transfer Monitoring'
     case 'google_drive_local_monitoring':
       return 'Google Drive (Local)'
+    case 'google_drive_cloud_monitoring':
+      return 'Google Drive (Cloud)'
     default:
       return 'Unknown'
   }
@@ -119,6 +123,14 @@ export const formatPolicyConfig = (policy: Policy): string => {
         .map(([event]) => event.charAt(0).toUpperCase() + event.slice(1))
         .join(', ')
       return `Base: ${c.basePath || 'G:\\My Drive\\'} | Folders: ${folders} | Events: ${events || 'None'} | Action: ${c.action}`
+    }
+
+    case 'google_drive_cloud_monitoring': {
+      const c = config as any
+      const folders = c.protectedFolders && c.protectedFolders.length > 0
+        ? `${c.protectedFolders.length} folder(s)`
+        : 'None'
+      return `Folders: ${folders} | Interval: ${c.pollingInterval || 10} min | Action: log`
     }
     
     default:
@@ -343,6 +355,13 @@ const getDefaultConfig = (type: PolicyType): any => {
         fileExtensions: [],
         events: { create: true, modify: false, delete: false, move: false, copy: false },
         action: 'alert'
+      }
+    case 'google_drive_cloud_monitoring':
+      return {
+        connectionId: '',
+        protectedFolders: [],
+        pollingInterval: 10,
+        action: 'log'
       }
     default:
       return {}

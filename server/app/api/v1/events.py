@@ -44,6 +44,8 @@ class DLPEvent(BaseModel):
     id: str
     timestamp: datetime
     event_type: str
+    event_subtype: Optional[str] = None
+    description: Optional[str] = None
     source: str
     agent_id: str  # Agent ID that generated the event
     user_email: str
@@ -53,14 +55,27 @@ class DLPEvent(BaseModel):
     action_taken: str
     severity: str
     file_path: Optional[str]
+    file_name: Optional[str] = None
+    file_id: Optional[str] = None
+    mime_type: Optional[str] = None
+    folder_id: Optional[str] = None
+    folder_name: Optional[str] = None
+    folder_path: Optional[str] = None
     source_path: Optional[str] = None
     destination: Optional[str]
     destination_type: Optional[str] = None
     blocked: bool
     content: Optional[str] = None
+    clipboard_content: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
     policy_version: Optional[str] = None
     matched_policies: Optional[List[Dict[str, Any]]] = None
     policy_action_summaries: Optional[List[Dict[str, Any]]] = None
+    tags: Optional[List[str]] = None
+
+    class Config:
+        extra = "allow"
 
 
 class EventsResponse(BaseModel):

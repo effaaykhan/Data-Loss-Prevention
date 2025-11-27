@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
-import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X, Shield, ArrowRight, File, HardDrive, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
-import { getEvents as fetchEvents, getEventStats, clearAllEvents } from '@/lib/api'
+import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X, Shield, ArrowRight, File, HardDrive, ChevronDown, ChevronUp, Trash2, RefreshCcw } from 'lucide-react'
+import { getEvents as fetchEvents, getEventStats, clearAllEvents, triggerGoogleDrivePoll } from '@/lib/api'
 import { formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -261,7 +261,12 @@ function EventDetailModal({
             </div>
             <div>
               <h3 className="text-2xl font-bold text-white">
-                {isClipboard ? 'Clipboard Violation' : isFile ? 'File Violation' : 'Event Details'}
+                {isClipboard ? 'Clipboard Violation' : isFile ? (
+                  // Show action type for file events (Google Drive or regular file events)
+                  event.event_subtype ? (
+                    event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                  ) : event.description || 'File Violation'
+                ) : 'Event Details'}
               </h3>
               <p className="text-gray-400 text-sm mt-1">{formatDateTimeIST(event.timestamp)}</p>
             </div>
@@ -282,6 +287,13 @@ function EventDetailModal({
             }`}>
               {event.severity}
             </span>
+            {/* Show event subtype/action for Google Drive events */}
+            {event.event_subtype && (
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium bg-blue-900/30 border-blue-500/50 text-blue-400">
+                <File className="w-4 h-4" />
+                {event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </span>
+            )}
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
               event.action_taken === 'blocked' ? 'bg-red-900/30 border-red-500/50 text-red-400' :
               event.action_taken === 'alerted' ? 'bg-yellow-900/30 border-yellow-500/50 text-yellow-400' :
@@ -441,7 +453,9 @@ function EventDetailModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-900/30 rounded-lg p-4 border border-gray-700">
               <label className="text-xs text-gray-400 uppercase font-medium mb-1 block">Event Type</label>
-              <p className="text-white font-medium capitalize">{event.event_type}</p>
+              <p className="text-white font-medium capitalize">
+                {event.event_subtype ? event.event_subtype.replace(/_/g, ' ') : event.event_type}
+              </p>
             </div>
             <div className="bg-gray-900/30 rounded-lg p-4 border border-gray-700">
               <label className="text-xs text-gray-400 uppercase font-medium mb-1 block">User</label>
@@ -486,6 +500,7 @@ export default function EventsPage() {
   const [kqlQuery, setKqlQuery] = useState('')
   const [startTime, setStartTime] = useState<string>('')
   const [endTime, setEndTime] = useState<string>('')
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // Fetch events from API
   const { data: events = [], isLoading, refetch } = useQuery({
@@ -632,6 +647,25 @@ export default function EventsPage() {
     }
   }
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true)
+    try {
+      const response = await triggerGoogleDrivePoll()
+      if (response?.status === 'queued') {
+        toast.success('Google Drive polling queued. Updating events…')
+      } else if (response?.status === 'skipped') {
+        toast.success(response?.message || 'No Google Drive policies configured. Events refreshed.')
+      } else {
+        toast.success(response?.message || 'Manual refresh triggered.')
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to trigger manual refresh')
+    } finally {
+      await Promise.all([refetch(), refetchStats()])
+      setIsRefreshing(false)
+    }
+  }
+
   // Helper function to format file size
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes'
@@ -680,14 +714,16 @@ export default function EventsPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                refetch()
-                refetchStats()
-              }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:border-indigo-500 hover:text-white transition-colors"
+              onClick={handleManualRefresh}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-600 text-gray-200 hover:border-indigo-500 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isRefreshing}
             >
-              <Loader2 className="w-4 h-4 animate-spin-slow" />
-              Refresh
+              {isRefreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCcw className="w-4 h-4" />
+              )}
+              Manual Refresh
             </button>
             <button
               onClick={exportEvents}
@@ -895,6 +931,21 @@ export default function EventsPage() {
                         <span>Agent: <span className="text-white font-medium">{event.agent_id}</span></span>
                         <span>{formatDateTimeIST(event.timestamp)}</span>
                       </div>
+                      {Array.isArray(event.matched_policies) && event.matched_policies.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {event.matched_policies
+                            .map((policy: any) => policy?.policy_name)
+                            .filter(Boolean)
+                            .map((name: string, idx: number) => (
+                              <span
+                                key={`${event.event_id}-policy-${idx}`}
+                                className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-indigo-900/50 border border-indigo-500/40 text-indigo-200"
+                              >
+                                {name}
+                              </span>
+                            ))}
+                        </div>
+                      )}
                       {event.details && (
                         <p className="text-gray-400 text-sm mt-2">{event.details?.file_name || event.details}</p>
                       )}

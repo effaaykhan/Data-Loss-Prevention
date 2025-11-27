@@ -1,206 +1,4 @@
-# Google Drive Monitoring Integration - Phased Implementation
-
-## Overview
-Implement two new policy types for Google Drive monitoring in sequential phases:
-- **Phase 1**: Local Google Drive Monitoring (Windows only) - Monitor G:\ drive using existing file system monitoring
-- **Phases 2-8**: Cloud-based Google Drive Monitoring - OAuth-based polling system for Drive Activity API
-
----
-
-## Phase 1: Local Google Drive Monitoring (Windows)
-
-### Goal
-Enable monitoring of Windows G:\ drive (Google Drive desktop app sync folder) using existing file system monitoring infrastructure.
-
-### 1.1 Backend Policy Type Support
-
-**Files to Modify:**
-- `server/app/models/policy.py` - Add `google_drive_local_monitoring` to policy type enum/validation
-- `server/app/utils/policy_transformer.py` - Add `_transform_google_drive_local_config()` function
-- `server/app/policies/agent_policy_transformer.py` - Add platform support mapping
-
-**Policy Config Format:**
-```typescript
-interface GoogleDriveLocalConfig {
-  basePath: string  // Default: "G:\\"
-  monitoredFolders: string[]  // Subfolders within G:\ to monitor
-  fileExtensions?: string[]
-  events: {
-    create: boolean
-    modify: boolean
-    delete: boolean
-    move: boolean
-    copy: boolean
-  }
-  action: 'alert' | 'quarantine' | 'block' | 'log'
-  quarantinePath?: string
-}
-```
-
-### 1.2 Frontend Policy Form
-
-**New Files:**
-- `dashboard/src/types/policy.ts` - Add `GoogleDriveLocalConfig` type
-- `dashboard/src/components/policies/GoogleDriveLocalPolicyForm.tsx` - Form component
-
-**Files to Modify:**
-- `dashboard/src/components/policies/PolicyTypeSelector.tsx` - Add "Google Drive (Local)" option
-- `dashboard/src/components/policies/PolicyCreatorModal.tsx` - Add form rendering
-- `dashboard/src/utils/policyUtils.ts` - Add validation
-
-### 1.3 Agent Integration (Windows)
-
-**Files to Modify:**
-- `agents/endpoint/windows/agent.py` - Add G:\ drive monitoring support
-
-### 1.4 Event Processing
-
-**Files to Modify:**
-- `server/app/policies/database_policy_evaluator.py` - Ensure it handles `google_drive_local_monitoring` policies
-- `server/app/api/v1/events.py` - Accept events with `source: "google_drive_local"`
-
-### 1.5 Testing Phase 1
-
-**Test Scenarios:**
-1. Create Google Drive local monitoring policy via UI
-2. Verify policy appears in agent policy sync
-3. Create/modify/delete file in G:\ monitored folder
-4. Verify event appears in dashboard with correct source tag
-5. Verify policy evaluation works (action execution)
-6. Test with multiple monitored folders
-7. Test file extension filtering
-8. Test event type filtering
-
-**Validation Checklist:**
-- [ ] Policy creation form works
-- [ ] Policy syncs to Windows agent
-- [ ] Agent monitors G:\ drive correctly
-- [ ] Events are created with `source: "google_drive_local"`
-- [ ] Events appear in dashboard
-- [ ] Policy evaluation triggers correct actions
-- [ ] File extension filtering works
-- [ ] Event type filtering works
-
----
-
-## Phase 2: Cloud Google Drive Monitoring - Database & Models
-
-### Goal
-Set up database schema and models for storing Google Drive OAuth connections and protected folders.
-
-### 2.1 Database Schema
-
-**New Alembic Migration:**
-- `server/alembic/versions/XXXX_add_google_drive_tables.py`
-
-**Tables:**
-- `google_drive_connections` - Store OAuth tokens and connection metadata
-- `google_drive_protected_folders` - Store protected folder selections per connection
-
-### 2.2 SQLAlchemy Models
-
-**New File:**
-- `server/app/models/google_drive.py`
-
-### 2.3 Testing Phase 2
-
-**Test Scenarios:**
-- Run migration successfully
-- Create connection and folder records
-- Test relationships and cascade delete
-
----
-
-## Phase 3: OAuth Service & API Endpoints
-
-### Goal
-Implement Google OAuth flow for users to connect their Google Drive accounts.
-
-### 3.1 OAuth Service
-
-**New File:**
-- `server/app/services/google_drive_oauth.py`
-
-**Dependencies:**
-- Add `google-auth`, `google-auth-oauthlib`, `google-auth-httplib2`, `google-api-python-client` to requirements.txt
-
-**Environment Variables:**
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
-
-### 3.2 API Endpoints
-
-**New File:**
-- `server/app/api/v1/google_drive.py`
-
-**Endpoints:**
-- `POST /api/v1/google-drive/connect` - Initiate OAuth
-- `GET /api/v1/google-drive/callback` - OAuth callback
-- `GET /api/v1/google-drive/connections` - List connections
-- `DELETE /api/v1/google-drive/connections/{id}` - Disconnect
-
-### 3.3 Frontend OAuth UI
-
-**New Files:**
-- `dashboard/src/components/google-drive/GoogleDriveConnectionManager.tsx`
-
-### 3.4 Testing Phase 3
-
-**Test Scenarios:**
-- OAuth flow end-to-end
-- Token storage and refresh
-- Connection management
-
----
-
-## Phase 4: Drive Activity Polling Service
-
-### Goal
-Implement polling service to query Google Drive Activity API for changes in protected folders.
-
-### 4.1 Polling Service
-
-**New File:**
-- `server/app/services/google_drive_polling.py`
-
-### 4.2 Event Normalizer
-
-**New File:**
-- `server/app/services/google_drive_event_normalizer.py`
-
-### 4.3 Testing Phase 4
-
-**Test Scenarios:**
-- Poll protected folders
-- Event normalization
-- Error handling
-
----
-
-## Phase 5: Celery Polling Tasks & Scheduling
-
-### Goal
-Set up background polling tasks with configurable intervals.
-
-### 5.1 Celery Tasks
-
-**New File:**
-- `server/app/tasks/google_drive_polling_tasks.py`
-
-### 5.2 Celery Beat Schedule
-
-**Files to Modify:**
-- `server/app/tasks/reporting_tasks.py` - Add polling schedule
-
-### 5.3 Testing Phase 5
-
-**Test Scenarios:**
-- Scheduled polling works
-- Custom intervals work
-- Rate limiting
-
----
-
-## Phase 6: Cloud Policy Form & Protected Folder Selection
+### Phase 6: Cloud Policy Form & Protected Folder Selection
 
 ### Goal
 Create frontend UI for cloud-based Google Drive monitoring policy creation.
@@ -313,7 +111,7 @@ Comprehensive testing of both local and cloud monitoring, plus UI polish.
 
 ---
 
-## Current Status: Phase 6 - In Progress
+## Current Status: Phase 8 - End-to-End Testing
 
 ### Phase 1 Tasks (Completed ✅)
 - [x] Backend policy type support
@@ -347,9 +145,38 @@ Comprehensive testing of both local and cloud monitoring, plus UI polish.
 - [x] Update Docker Compose with Celery services
 - [x] Verify task execution
 
-### Phase 6 Tasks
-- [ ] Update policy types interface
-- [ ] Create ProtectedFolderSelector component
-- [ ] Create PollingIntervalSettings component
-- [ ] Create GoogleDriveCloudPolicyForm
-- [ ] Update backend policy transformers
+### Phase 6 Tasks (Completed ✅)
+- [x] Update policy types interface
+- [x] Create ProtectedFolderSelector component
+- [x] Create PollingIntervalSettings component (Merged into Form)
+- [x] Create GoogleDriveCloudPolicyForm
+- [x] Update backend policy transformers (Also part of Phase 7)
+
+### Phase 7 Tasks (Completed ✅)
+- [x] Integrate Google Drive configs into Policy Transformer
+- [x] Update Database Policy Evaluator to handle Cloud events
+- [x] Implement folder synchronization logic (`sync_google_drive_folders`) in Policies API
+- [x] Verify policy creation and DB persistence
+
+### Phase 8 Tasks (Completed ✅)
+- [x] Fix `service.activities()` bug in polling logic
+- [x] Fix UI styling (Dark mode, Polling presets)
+- [x] Verify Polling Task execution (Runs successfully)
+- [x] Verify Events appear in Dashboard (Policy-filtered events confirmed)
+
+### Phase 9 Tasks (Completed ✅)
+- [x] Store per-folder activity timestamps and filter Drive Activity queries
+- [x] Generate deterministic Google Drive event identifiers to avoid duplicates
+- [x] Limit cloud monitoring to create/update/delete/move/copy/download actions
+- [x] Update documentation and automated tests for the new polling behavior
+
+### Phase 10: Cloud Baseline Controls
+- [x] Initialize protected-folder baselines at selection time
+- [x] Enforce per-folder baselines with skip-and-touch logic in the poller
+- [x] Add API & UI to display/reset Google Drive monitoring baselines
+- [ ] Document baseline workflow in `POLLING_ARCHITECTURE.md` / `GOOGLE_DRIVE_POLLING_DIAGNOSIS.md`
+
+### Phase 11: Manual Drive Refresh
+- [x] Expose FastAPI endpoint that triggers an immediate Google Drive poll (enqueues Celery task)
+- [x] Add dashboard Events page button to call that endpoint and then refetch event data
+- [x] Ensure refresh falls back to normal event reload for non-GDrive policies

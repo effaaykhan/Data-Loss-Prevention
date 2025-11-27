@@ -451,21 +451,167 @@ curl -s "http://localhost:55000/api/v1/events?limit=5" \
 
 ---
 
-## Step 10: Cleanup (After Testing)
+## Step 10: Test Google Drive Integration
 
-### 10.1 Stop Agents
+### 10.1 Prerequisites
+- Google Cloud Platform project with Google Drive API enabled
+- OAuth 2.0 credentials configured (see `INSTALLATION_GUIDE.md`)
+- Environment variables set in `.env`:
+  ```bash
+  GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+  GOOGLE_CLIENT_SECRET=your-client-secret
+  GOOGLE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/google-drive/callback
+  ```
+
+### 10.2 Create Google Drive Policy
+1. Open dashboard: `http://localhost:3000`
+2. Navigate to **Policies** page
+3. Click **"Create Policy"**
+4. Select **"Google Drive Cloud"** policy type
+5. Click **"Connect Google Drive"** button
+6. Complete OAuth flow:
+   - Authorize CyberSentinel to access Google Drive
+   - Select folders to protect (e.g., "My Drive/Projects/test_files")
+   - Confirm folder selection
+7. Configure policy:
+   - Name: "Test Google Drive Policy"
+   - Description: "Monitor test_files folder"
+   - Severity: High
+   - Priority: 80
+   - Enabled: Yes
+8. Review and save policy
+
+### 10.3 Verify Protected Folders
+1. In policy form, verify:
+   - Connection shows "Connected" status
+   - Protected folders list shows selected folders
+   - "Monitoring since" date is displayed (should be current time)
+2. Check individual folder baselines:
+   - Each folder should show baseline timestamp
+   - Baseline should be set to when folder was added
+
+### 10.4 Test Google Drive Polling
+
+**Option A: Wait for Automatic Polling**
+- Polling runs every 5 minutes (configured in Celery Beat)
+- Wait up to 5 minutes for next scheduled run
+
+**Option B: Trigger Manual Poll**
+1. Go to **Events** page
+2. Click **"Manual Refresh"** button
+3. Wait a few seconds for poll to complete
+4. Check Events page for new Google Drive events
+
+### 10.5 Create Test Activity in Google Drive
+1. Go to your Google Drive
+2. Navigate to protected folder (e.g., "My Drive/Projects/test_files")
+3. Create a new file: `test_dlp_monitoring.txt`
+4. Add some content (optionally with PII to test policy matching)
+5. Save the file
+
+### 10.6 Verify Events in Dashboard
+1. Go to **Events** page
+2. Click **"Manual Refresh"** (or wait for automatic poll)
+3. Look for new Google Drive event:
+   - **Source:** `google_drive_cloud`
+   - **Event Type:** `file`
+   - **Event Subtype:** `file_created`
+   - **File Path:** `My Drive/Projects/test_files`
+   - **File Name:** `test_dlp_monitoring.txt`
+   - **Agent ID:** `gdrive-{connection_id}`
+   - **Timestamp:** Should show actual Google Drive activity time (not poll time)
+
+### 10.7 Test Additional File Operations
+1. **Modify file:**
+   - Edit `test_dlp_monitoring.txt` in Google Drive
+   - Trigger manual refresh
+   - Verify `file_modified` event appears
+
+2. **Delete file:**
+   - Delete `test_dlp_monitoring.txt` in Google Drive
+   - Trigger manual refresh
+   - Verify `file_deleted` event appears
+
+### 10.8 Test Baseline Reset
+1. Go to **Policies** page
+2. Edit Google Drive Cloud policy
+3. Click **"Reset Connection Baseline"** button
+4. Verify baseline timestamp updates to current time
+5. Create a new file in protected folder
+6. Trigger manual refresh
+7. Verify only new file event appears (not historical events)
+
+### 10.9 Verify No Duplicate Events
+1. Trigger manual refresh multiple times (without creating new files)
+2. Verify no duplicate events appear
+3. Each event should have unique ID
+4. Event count should remain stable
+
+### 10.10 API Verification (Optional)
+```bash
+# Get auth token
+TOKEN=$(curl -s -X POST http://localhost:55000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+
+# List Google Drive connections
+curl -s http://localhost:55000/api/v1/google-drive/connections \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Get protected folders for a connection
+CONNECTION_ID="your-connection-id"
+curl -s "http://localhost:55000/api/v1/google-drive/connections/$CONNECTION_ID/protected-folders" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Trigger manual poll
+curl -s -X POST http://localhost:55000/api/v1/google-drive/poll \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Get Google Drive events
+curl -s "http://localhost:55000/api/v1/events?limit=10&source=google_drive_cloud" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+```
+
+### 10.11 Check Celery Logs
+```bash
+# Check Celery Beat (scheduler)
+docker-compose logs celery-beat | grep -i "google\|drive"
+
+# Check Celery Worker (polling execution)
+docker-compose logs celery-worker | grep -i "google\|drive\|poll"
+
+# Check for errors
+docker-compose logs celery-worker | grep -i error
+```
+
+### Expected Results
+- ✅ OAuth flow completes successfully
+- ✅ Protected folders are stored in database
+- ✅ Polling service fetches new activities
+- ✅ Events appear in dashboard with correct metadata
+- ✅ Event timestamps use actual Google Drive activity time
+- ✅ Baseline prevents historical event re-ingestion
+- ✅ Manual refresh triggers immediate polling
+- ✅ No duplicate events appear
+- ✅ Policy matching works for Google Drive events
+
+---
+
+## Step 11: Cleanup (After Testing)
+
+### 11.1 Stop Agents
 ```bash
 # Linux agent: Press Ctrl+C in the terminal running agent.py
 # Windows agent: Press Ctrl+C in PowerShell window
 ```
 
-### 10.2 Stop Docker Services
+### 11.2 Stop Docker Services
 ```bash
 cd /home/vansh/Code/Data-Loss-Prevention
 docker-compose down
 ```
 
-### 10.3 Verify Everything Stopped
+### 11.3 Verify Everything Stopped
 ```bash
 # Check Docker containers
 docker ps
@@ -522,6 +668,14 @@ ps aux | grep agent.py | grep -v grep
 ✅ **Data Consistency:**
 - Dashboard stats match Agents/Events/Alerts pages
 - All numbers are consistent across pages
+
+✅ **Google Drive Integration:**
+- OAuth flow works
+- Protected folders configured correctly
+- Polling fetches new activities
+- Events display with correct metadata
+- Baseline prevents duplicates
+- Manual refresh works
 
 ---
 

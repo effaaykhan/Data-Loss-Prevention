@@ -107,3 +107,5 @@ EventDetailModal
 5. **Pattern Visualization**: Visual indicators showing where in content patterns were found
 6. **Policy Rule Visualization**: Visual flow diagram showing how rules matched
 
+
+

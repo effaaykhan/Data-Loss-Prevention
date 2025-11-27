@@ -187,6 +187,9 @@ class DatabasePolicyEvaluator:
             "usb_event_type": ["usb.event_type", "usb_event_type"],
             "source_path": ["source_path", "file.source_path"],
             "destination_type": ["destination_type", "destination.type"],
+            "source": ["source", "event.source"],
+            "connection_id": ["connection_id", "metadata.connection_id"],
+            "folder_id": ["folder_id", "metadata.folder_id"],
         }
 
         candidate_paths = field_mappings.get(field, [field])

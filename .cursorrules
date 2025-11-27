@@ -5,6 +5,7 @@ Enterprise-grade Data Loss Prevention (DLP) platform with ML-based PII detection
 
 **Tech Stack:**
 - Backend: Python 3.11, FastAPI 0.104.1, PostgreSQL 15, MongoDB 7, Redis 7, OpenSearch 2.11
+- Cloud Integrations: Google Drive Activity API (OAuth 2.0 + Drive Activity v2)
 - Frontend: Node.js 18+, React 18, TypeScript, Vite
 - Agents: Python 3.10+ (Windows/Linux)
 - Containerization: Docker, Docker Compose
@@ -212,10 +213,10 @@ docker compose ps
 
 - **Dual Monitoring**: Monitors both source directories and removable drives for file transfers
 - **Transfer Blocking**: Can block file copies to USB drives (configurable in agent_config.json)
+- **Cloud Monitoring**: Google Drive connections stored in PostgreSQL, Drive Activity polled via Celery (`google_drive_polling_tasks`) with per-folder baselines + deterministic IDs; manual refresh hits `/api/v1/google-drive/poll`
 - **Event Storage**: Events stored in MongoDB (`dlp_events` collection)
-- **User Storage**: Users stored in PostgreSQL (`users` table)
-- **Policy Storage**: Policies stored in PostgreSQL (`policies` table)
-- **Caching**: Redis used for sessions and caching
+- **User/Policy Storage**: PostgreSQL tables for users/policies + `google_drive_*` tables
+- **Caching**: Redis used for sessions, OAuth state cache, and policy bundle caching
 - **Search**: OpenSearch for advanced event search (optional)
 
 ## Policy System
@@ -225,6 +226,8 @@ docker compose ps
 - **File System Monitoring**: Monitors directories for file operations (create, modify, delete, move, copy)
 - **USB Device Monitoring**: Monitors USB device connections/disconnections
 - **USB File Transfer Monitoring**: Monitors and blocks/quarantines file transfers to USB drives
+- **Google Drive (Local)**: Windows agent watches `G:\My Drive` mirror for file/USB exfiltration activity
+- **Google Drive (Cloud)**: OAuth + Drive Activity API monitoring with per-folder baselines, manual refresh, and policy matching in the backend
 
 ### Policy Management UI
 - **Create Policy**: Multi-step wizard (Type → Config → Review)

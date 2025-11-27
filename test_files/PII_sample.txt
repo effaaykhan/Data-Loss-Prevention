@@ -1,0 +1,17 @@
+Project Aurora – Confidential
+==============================
+
+Team Lead: Sarah Nguyen
+Email: sarah.nguyen@contoso.example
+Phone: +1-555-310-4422
+
+Sensitive identifiers found in sample payload:
+- Primary SSN: 321-54-9876
+- Backup SSN: 123-45-6789
+- Test PAN (Visa): 4532-1234-5678-9010
+- Test PAN (MasterCard): 5424-0000-0000-0005
+
+If this file appears in Google Drive events, the policy is working correctly.
+
+
+

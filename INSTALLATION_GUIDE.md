@@ -616,6 +616,127 @@ Get-Service -Name "CyberSentinelDLP"
 
 ---
 
+## Google Drive Integration Setup
+
+### Prerequisites
+
+- Google Cloud Platform (GCP) account
+- Google Drive API enabled in GCP project
+- OAuth 2.0 credentials (Client ID and Client Secret)
+
+### Step 1: Create Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing project
+3. Enable **Google Drive API**:
+   - Navigate to "APIs & Services" > "Library"
+   - Search for "Google Drive API"
+   - Click "Enable"
+
+### Step 2: Create OAuth 2.0 Credentials
+
+1. Navigate to "APIs & Services" > "Credentials"
+2. Click "Create Credentials" > "OAuth client ID"
+3. Configure OAuth consent screen (if not done):
+   - User Type: External (or Internal for G Suite)
+   - App name: "CyberSentinel DLP"
+   - Scopes: `https://www.googleapis.com/auth/drive.activity.readonly`
+4. Create OAuth client:
+   - Application type: Web application
+   - Authorized redirect URIs: `http://YOUR_SERVER_IP:55000/api/v1/google-drive/callback`
+   - Save Client ID and Client Secret
+
+### Step 3: Configure Environment Variables
+
+Add to `.env` file:
+
+```bash
+# Google Drive OAuth
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/google-drive/callback
+```
+
+**Replace:**
+- `YOUR_SERVER_IP` with your server IP address
+- `your-client-id` and `your-client-secret` with your OAuth credentials
+
+### Step 4: Restart Services
+
+```bash
+docker-compose restart manager celery-worker celery-beat
+```
+
+### Step 5: Create Google Drive Policy
+
+1. Open dashboard: `http://YOUR_SERVER_IP:3000`
+2. Navigate to **Policies** page
+3. Click **"Create Policy"**
+4. Select **"Google Drive Cloud"** policy type
+5. Click **"Connect Google Drive"** button
+6. Complete OAuth flow:
+   - Authorize CyberSentinel to access Google Drive
+   - Select folders to protect
+   - Confirm folder selection
+7. Configure policy:
+   - Name, description, severity, priority
+   - Review selected protected folders
+   - Save policy
+
+### Step 6: Verify Polling
+
+1. Create a file in a protected Google Drive folder
+2. Wait up to 5 minutes (or click "Manual Refresh" in Events page)
+3. Check Events page for new Google Drive event
+4. Event should show:
+   - Source: `google_drive_cloud`
+   - Event type: `file`
+   - Event subtype: `file_created` (or `file_modified`, `file_deleted`)
+   - File path: Google Drive folder path
+   - Timestamp: Actual Google Drive activity timestamp
+
+### Baseline Management
+
+**What is a baseline?**
+- A timestamp stored per protected folder indicating when monitoring started
+- Only events after the baseline are fetched (prevents historical data re-ingestion)
+- Baseline is automatically set to `datetime.utcnow()` when folder is added to policy
+
+**Reset Baseline:**
+1. Go to Policies page
+2. Edit Google Drive Cloud policy
+3. Use "Reset Selected Baseline" or "Reset Connection Baseline" buttons
+4. This will start monitoring from the current time forward
+
+**View Baseline:**
+- Policy form shows "Monitoring since" date for each connection
+- Individual folder baselines shown in protected folders list
+
+### Troubleshooting Google Drive Integration
+
+**OAuth flow fails:**
+- Verify `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`
+- Check redirect URI matches GCP OAuth client configuration
+- Ensure Google Drive API is enabled in GCP project
+
+**No events appearing:**
+- Check Celery worker logs: `docker-compose logs celery-worker | grep -i "google\|drive"`
+- Verify protected folders are configured in policy
+- Check baseline timestamps (may need to reset if too old)
+- Use "Manual Refresh" button to trigger immediate poll
+
+**Duplicate events:**
+- Baseline system should prevent this
+- If duplicates appear, reset baseline for affected folders
+- Check event IDs are deterministic (should not change between polls)
+
+**Polling not running:**
+- Verify Celery Beat is running: `docker-compose ps celery-beat`
+- Check Celery Beat logs: `docker-compose logs celery-beat`
+- Verify schedule in `server/app/tasks/reporting_tasks.py` (default: every 5 minutes)
+
+---
+
 ## Configuration
 
 ### Dashboard Configuration
@@ -635,6 +756,9 @@ Get-Service -Name "CyberSentinelDLP"
    - `VITE_API_URL`: Dashboard API URL (defaults to `http://localhost:55000/api/v1`)
    - `VITE_WS_URL`: WebSocket URL (defaults to `ws://localhost:55000/ws`)
    - Database passwords and `SECRET_KEY`
+   - `GOOGLE_CLIENT_ID`: Google OAuth Client ID (for Google Drive integration)
+   - `GOOGLE_CLIENT_SECRET`: Google OAuth Client Secret (for Google Drive integration)
+   - `GOOGLE_REDIRECT_URI`: OAuth redirect URI (e.g., `http://YOUR_SERVER_IP:55000/api/v1/google-drive/callback`)
 
 **Manual Configuration (docker-compose.yml):**
 

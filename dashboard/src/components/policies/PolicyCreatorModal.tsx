@@ -8,7 +8,8 @@ import {
   FileSystemConfig, 
   USBDeviceConfig, 
   USBTransferConfig,
-  GoogleDriveLocalConfig
+  GoogleDriveLocalConfig,
+  GoogleDriveCloudConfig
 } from '@/types/policy'
 import { validatePolicy } from '@/utils/policyUtils'
 import PolicyTypeSelector from './PolicyTypeSelector'
@@ -17,6 +18,7 @@ import FileSystemPolicyForm from './FileSystemPolicyForm'
 import USBDevicePolicyForm from './USBDevicePolicyForm'
 import USBTransferPolicyForm from './USBTransferPolicyForm'
 import GoogleDriveLocalPolicyForm from './GoogleDriveLocalPolicyForm'
+import GoogleDriveCloudPolicyForm from './GoogleDriveCloudPolicyForm'
 import { X, ChevronLeft, ChevronRight, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -27,7 +29,7 @@ interface PolicyCreatorModalProps {
   editingPolicy?: Policy | null
 }
 
-const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig => {
+const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig => {
   switch (type) {
     case 'clipboard_monitoring':
       return {
@@ -80,6 +82,14 @@ const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig 
         },
         action: 'alert'
       } as GoogleDriveLocalConfig
+      
+    case 'google_drive_cloud_monitoring':
+      return {
+        connectionId: '',
+        protectedFolders: [],
+        pollingInterval: 10,
+        action: 'log'
+      } as GoogleDriveCloudConfig
   }
 }
 
@@ -98,7 +108,7 @@ export default function PolicyCreatorModal({
   )
   const [priority, setPriority] = useState(editingPolicy?.priority || 100)
   const [enabled, setEnabled] = useState(editingPolicy?.enabled ?? true)
-  const [config, setConfig] = useState<ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig>(
+  const [config, setConfig] = useState<ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig>(
     editingPolicy?.config || (policyType ? getDefaultConfig(policyType) : getDefaultConfig('clipboard_monitoring'))
   )
 
@@ -362,6 +372,13 @@ export default function PolicyCreatorModal({
                 {policyType === 'google_drive_local_monitoring' && (
                   <GoogleDriveLocalPolicyForm
                     config={config as GoogleDriveLocalConfig}
+                    onChange={(newConfig) => setConfig(newConfig)}
+                  />
+                )}
+
+                {policyType === 'google_drive_cloud_monitoring' && (
+                  <GoogleDriveCloudPolicyForm
+                    config={config as GoogleDriveCloudConfig}
                     onChange={(newConfig) => setConfig(newConfig)}
                   />
                 )}

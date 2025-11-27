@@ -1,10 +1,96 @@
 # Changelog - Testing and Fixes
 
-**Date:** November 14-17, 2025  
+**Date:** November 14-26, 2025  
 **Testing Environment:** WSL2 (Ubuntu on Windows)  
 **Tested By:** Vansh-Raja
 
 This document details all changes, fixes, and improvements made during testing and deployment of the CyberSentinel DLP platform.
+
+---
+
+## 🚀 Google Drive Cloud Integration (November 26, 2025)
+
+### Summary
+
+- **Total Files Modified:** 25+
+- **New Features:** Google Drive OAuth integration, Activity API polling, protected folder monitoring, baseline management, manual refresh
+- **New Components:** Google Drive policy forms, protected folder management UI, baseline reset controls
+
+### Highlights
+
+#### Google Drive OAuth & Connection Management
+- Implemented OAuth 2.0 flow for Google Drive authentication
+- Created `GoogleDriveConnection` and `GoogleDriveProtectedFolder` models in PostgreSQL
+- Added connection management API endpoints (`/google-drive/connect`, `/google-drive/connections`)
+- Protected folder selection UI with folder tree navigation
+- Connection status tracking and token refresh handling
+
+#### Google Drive Activity Polling
+- Celery-based background polling service (`GoogleDrivePollingService`)
+- Polls Google Drive Activity API every 5 minutes for protected folders
+- Event normalization from Google Drive activity format to DLP event format
+- Supports file operations: created, modified, deleted, moved, copied, downloaded
+- Deterministic event ID generation to prevent duplicates
+- Per-folder baseline timestamps (`last_seen_timestamp`) to prevent historical re-ingestion
+
+#### Baseline Management System
+- Per-folder `last_seen_timestamp` stored in PostgreSQL
+- Polling only fetches events after baseline timestamp
+- Baseline initialized to `datetime.utcnow()` when folder is added to policy
+- API endpoints for viewing and resetting baselines (`/google-drive/connections/{id}/protected-folders`, `/google-drive/connections/{id}/baseline`)
+- UI controls to reset individual folder baselines or entire connection baseline
+- "Monitoring since" date display in policy forms
+
+#### Manual Refresh & Event Display
+- Manual refresh button in Events UI triggers immediate Google Drive poll
+- API endpoint `/google-drive/poll` for on-demand polling
+- Enhanced event display with Google Drive-specific fields:
+  - `event_subtype`: file_created, file_deleted, file_modified, etc.
+  - `description`: Human-readable activity description
+  - `file_id`, `folder_id`, `folder_name`, `folder_path`: Google Drive metadata
+  - `mime_type`: File MIME type
+  - `details`: Raw Google Drive activity payload
+- Event timestamps use actual Google Drive activity timestamp (not poll time)
+
+#### Policy Integration
+- Google Drive Cloud policy type in policy creation wizard
+- Policy configuration includes:
+  - Google Drive connection selection
+  - Protected folder selection (multi-select)
+  - Policy rules matching on `source`, `connection_id`, `folder_id`
+- Policy sync updates protected folders when policy is created/updated
+- Policy evaluation matches Google Drive events against configured rules
+
+#### Database Schema
+- Migration `caa6530e7d81_add_google_drive_tables.py`:
+  - `google_drive_connections` table: OAuth tokens, user email, connection status
+  - `google_drive_protected_folders` table: Folder metadata, baseline timestamps
+- Foreign key relationships to `users` and `policies` tables
+
+#### Files Changed
+- `server/app/models/google_drive.py` - Database models
+- `server/app/services/google_drive_oauth.py` - OAuth and connection management
+- `server/app/services/google_drive_polling.py` - Activity polling service
+- `server/app/services/google_drive_event_normalizer.py` - Event normalization
+- `server/app/tasks/google_drive_polling_tasks.py` - Celery task wrapper
+- `server/app/api/v1/google_drive.py` - API endpoints
+- `server/app/api/v1/policies.py` - Policy sync integration
+- `server/app/api/v1/events.py` - Event model updates for Google Drive fields
+- `dashboard/src/components/policies/GoogleDriveCloudPolicyForm.tsx` - Policy form
+- `dashboard/src/components/google-drive/` - OAuth and folder selection components
+- `dashboard/src/lib/api.ts` - Google Drive API client functions
+- `dashboard/src/pages/Events.tsx` - Manual refresh button
+- `dashboard/src/app/dashboard/events/page.tsx` - Manual refresh button (App Router)
+
+#### Testing Results
+- ✅ OAuth flow completes successfully
+- ✅ Protected folders are stored and synced with policies
+- ✅ Polling service fetches new activities correctly
+- ✅ Baseline system prevents historical event re-ingestion
+- ✅ Events display with correct Google Drive timestamps
+- ✅ Manual refresh triggers immediate polling
+- ✅ Policy matching works for Google Drive events
+- ✅ No duplicate events appear after baseline implementation
 
 ---
 
