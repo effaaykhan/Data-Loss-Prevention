@@ -159,6 +159,86 @@ curl http://YOUR_IP:55000/health
 
 ---
 
+### POSSIBLE BUGS
+### Bug 1: ENUM mismatch
+- ERROR
+  ```
+  invalid input value for enum userrole: "admin"
+  ```
+- FIX
+  ```
+  docker exec -it cybersentinel-postgres psql -U dlp_user -d cybersentinel_dlp -c "
+  ALTER TYPE user_role RENAME VALUE 'admin' TO 'ADMIN';
+  ALTER TYPE user_role RENAME VALUE 'analyst' TO 'ANALYST';
+  ALTER TYPE user_role RENAME VALUE 'viewer' TO 'VIEWER';
+  ALTER TYPE user_role RENAME VALUE 'agent' TO 'AGENT';
+  "
+  ```
+
+### Bug 2: bcrypt broken
+- Error:
+```
+(trapped) error reading bcrypt version
+module 'bcrypt' has no attribute '__about__'
+```
+- Fix
+```
+docker exec -it cybersentinel-manager bash -c "pip install bcrypt==4.0.1"
+```
+
+### ✔ AFTER FIXES — Create admin again
+- Once ENUM and bcrypt are fixed, run this again:
+```
+docker exec -it cybersentinel-manager bash
+```
+THEN
+```
+python - << 'EOF'
+import asyncio
+from app.core.database import init_databases
+from app.core.database import get_db_session
+from app.services.user_service import UserService
+
+async def main():
+    await init_databases()
+    
+    gen = get_db_session()
+    db = next(gen)
+
+    try:
+        service = UserService(db)
+        user = await service.create_user(
+            email="admin@local",
+            password="Admin123!",
+            role="ADMIN",
+            full_name="Administrator"
+        )
+        print("Admin created:", user.email)
+    finally:
+        try: next(gen)
+        except StopIteration: pass
+
+asyncio.run(main())
+EOF
+```
+
+✔ After running, verify:
+```
+docker exec -it cybersentinel-postgres psql -U dlp_user -d cybersentinel_dlp -c "SELECT email, role FROM users;"
+```
+
+You should see:
+
+```
+admin@local | admin
+```
+✔ LOGIN TO DASHBOARD
+```
+admin@local
+Admin123!
+```
+
+
 ## Linux Agent Installation
 
 ### Step 1: Prerequisites
@@ -382,6 +462,15 @@ curl http://YOUR_SERVER_IP:55000/api/v1/events?limit=10 \
 - **Python 3.8+** installed on Windows
 - **Administrator privileges** (for some features like USB monitoring)
 - **WSL2** (if deploying from WSL) or direct Windows access
+
+
+## SIMPLE WINDOWS AGENT INSTALLATION as a Service
+- Create an installer file in any directory:
+  ```
+  notepad windows-agent_installer.py
+  ```
+- Paste the [content](https://github.com/effaaykhan/Data-Loss-Prevention/blob/main/windows-agent_installer.py) in this file:
+- Add the details prompted on the screen.
 
 ### Step 1: Copy Agent Files to Windows
 
