@@ -278,7 +278,7 @@ class DLPAgent:
                 "hostname": socket.gethostname(),
                 "os": "windows",
                 "os_version": platform.platform(),
-                "ip_address": socket.gethostbyname(socket.gethostname()),
+                "ip_address": self._get_real_ip_address(),
                 "version": "1.0.0",
                 "capabilities": self.policy_capabilities
             }
@@ -1278,7 +1278,7 @@ class DLPAgent:
             # Send timestamp in ISO format for server validation
             data = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "ip_address": socket.gethostbyname(socket.gethostname())
+                "ip_address": self._get_real_ip_address()
             }
             if self.active_policy_version:
                 data["policy_version"] = self.active_policy_version
@@ -1302,6 +1302,31 @@ class DLPAgent:
 
         except Exception as e:
             logger.error(f"Heartbeat failed: {e}", exc_info=True)
+
+    def _get_real_ip_address(self):
+        """Get the real IP address of the Windows machine instead of hostname resolution"""
+        try:
+            # Extract server host from server_url
+            server_url = self.config.get("server_url", "http://localhost:55000/api/v1")
+            if server_url.startswith("http://"):
+                host_port = server_url[7:].split("/")[0]
+            elif server_url.startswith("https://"):
+                host_port = server_url[8:].split("/")[0]
+            else:
+                host_port = server_url.split("/")[0]
+
+            # Split host and port if present
+            host = host_port.split(":")[0] if ":" in host_port else host_port
+
+            # Create a socket to find the IP address used to reach the server
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                # Connect to the DLP server to determine the real IP
+                s.connect((host, 80))
+                ip = s.getsockname()[0]
+                return ip
+        except:
+            # Fallback to hostname resolution
+            return socket.gethostbyname(socket.gethostname())
 
 
 def main():
