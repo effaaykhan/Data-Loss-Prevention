@@ -33,7 +33,6 @@ export interface FileSystemConfig {
     modify: boolean
     delete: boolean
     move: boolean
-    copy: boolean
   }
   action: FileSystemAction
   quarantinePath?: string
@@ -63,7 +62,6 @@ export interface GoogleDriveLocalConfig {
     modify: boolean
     delete: boolean
     move: boolean
-    copy: boolean
   }
   action: FileSystemAction
   quarantinePath?: string
@@ -103,6 +101,5 @@ export interface Policy {
   violations?: number
   lastViolation?: string
 }
-
 
 

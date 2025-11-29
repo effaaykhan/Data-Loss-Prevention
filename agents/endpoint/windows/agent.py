@@ -53,6 +53,7 @@ class AgentConfig:
             "agent_id": str(uuid.uuid4()),
             "agent_name": socket.gethostname(),
             "heartbeat_interval": 30,  # Reduced from 60s to 30s for more frequent updates
+            "policy_sync_interval": 60,  # More responsive bundle refresh (was 300s)
             "monitoring": {
                 "file_system": True,
                 "clipboard": True,
@@ -82,6 +83,9 @@ class AgentConfig:
                     default_config.update(loaded_config)
             except Exception as e:
                 logger.error(f"Error loading config: {e}, using defaults")
+
+        # Enforce faster policy sync cadence
+        default_config["policy_sync_interval"] = 60
 
         # Environment variable takes precedence over config file
         if os.getenv("CYBERSENTINEL_SERVER_URL"):
@@ -120,6 +124,11 @@ class FileMonitorHandler(FileSystemEventHandler):
         if not event.is_directory and self._should_monitor(event.dest_path):
             self.agent.handle_file_event("file_moved", event.dest_path)
 
+    def on_deleted(self, event: FileSystemEvent):
+        """Handle file deletion"""
+        if not event.is_directory and self._should_monitor(event.src_path):
+            self.agent.handle_file_event("file_deleted", event.src_path)
+
     def _should_monitor(self, file_path: str) -> bool:
         """Check if file should be monitored"""
         ext = Path(file_path).suffix.lower()
@@ -155,8 +164,16 @@ class DLPAgent:
         self.policy_file_paths: List[str] = []
         self.policy_clipboard_rules: List[Dict[str, Any]] = []
         self.usb_transfer_policies: List[Dict[str, Any]] = []
+        self.usb_transfer_policy_present: bool = False
+        self.has_any_policies: bool = False
+        self.has_file_policies: bool = False
+        self.has_clipboard_policies: bool = False
+        self.has_usb_device_policies: bool = False
+        self.has_usb_transfer_policies: bool = False
+        self.has_gdrive_local_policies: bool = False
+        self.allow_events: bool = False
         self.active_policy_version: Optional[str] = None
-        self.policy_sync_interval = self.config.get("policy_sync_interval", 300)
+        self.policy_sync_interval = self.config.get("policy_sync_interval", 60)
         self.policy_capabilities = self._get_policy_capabilities()
         self.last_policy_sync_at: Optional[str] = None
         self.last_policy_sync_status: str = "never"
@@ -166,6 +183,9 @@ class DLPAgent:
         self.removable_drives = set()  # Track current removable drive letters: {'E:', 'F:'}
         self.removable_observers = {}  # Track observers: {'E:': Observer instance}
         self.monitored_directories = []  # List of monitored directory paths (expanded)
+        self.transfer_blocking_config = self.config.get("monitoring", {}).get("transfer_blocking", {})
+        self.transfer_blocking_enabled = bool(self.transfer_blocking_config.get("enabled", False))
+        self.transfer_blocking_thread_started = False
         
         # Deduplication: Track recent events to prevent duplicates
         self.recent_events = {}  # {(file_path, event_type): timestamp}
@@ -185,7 +205,7 @@ class DLPAgent:
             threading.Thread(target=self.policy_sync_loop, daemon=True).start()
 
         # Start file system monitoring
-        if self.config.get("monitoring", {}).get("file_system", True):
+        if self.config.get("monitoring", {}).get("file_system", True) and self.has_file_policies:
             self.start_file_monitoring()
 
         # Start clipboard monitoring
@@ -197,8 +217,7 @@ class DLPAgent:
             threading.Thread(target=self.monitor_usb, daemon=True).start()
 
         # Start removable drive monitoring for transfer blocking
-        if self.config.get("monitoring", {}).get("transfer_blocking", {}).get("enabled", False):
-            threading.Thread(target=self.monitor_removable_drives, daemon=True).start()
+        self._ensure_transfer_blocking_thread()
 
         # Start heartbeat
         threading.Thread(target=self.heartbeat_loop, daemon=True).start()
@@ -298,6 +317,7 @@ class DLPAgent:
     def sync_policies(self, initial: bool = False):
         """Fetch policies from server and apply them."""
         try:
+            logger.info("Syncing policy bundle", extra={"installed_version": self.active_policy_version})
             payload = {
                 "platform": "windows",
                 "capabilities": self.policy_capabilities,
@@ -319,8 +339,10 @@ class DLPAgent:
 
             data = response.json()
             if data.get("status") == "up_to_date":
-                if initial:
-                    logger.info("Agent policy bundle already up to date")
+                logger.info(
+                    "Agent policy bundle up to date",
+                    extra={"version": self.active_policy_version or data.get("version")}
+                )
                 self.last_policy_sync_status = "up_to_date"
                 self.last_policy_sync_error = None
                 self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
@@ -353,17 +375,19 @@ class DLPAgent:
         clipboard_policies = policies.get("clipboard_monitoring", [])
         usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
         google_drive_local_policies = policies.get("google_drive_local_monitoring", [])
+        usb_device_policies = policies.get("usb_device_monitoring", [])
 
         new_file_paths: List[str] = []
         for policy in file_policies + usb_transfer_policies:
             config = policy.get("config", {})
-            paths = config.get("monitoredPaths", [])
+            paths = self._normalize_path_list(config.get("monitoredPaths", []))
             new_file_paths.extend(paths)
         
         # Process Google Drive local monitoring policies
         for policy in google_drive_local_policies:
             config = policy.get("config", {})
-            base_path = config.get("basePath", "G:\\")
+            # Align default with backend transformer ("G:\\My Drive\\")
+            base_path = config.get("basePath", "G:\\My Drive\\")
             # Ensure base_path ends with backslash
             if not base_path.endswith("\\"):
                 base_path = base_path + "\\"
@@ -377,17 +401,39 @@ class DLPAgent:
                         full_path = base_path + folder
                         if not full_path.endswith("\\"):
                             full_path = full_path + "\\"
-                        new_file_paths.append(full_path)
+                        new_file_paths.append(self._normalize_filesystem_path(full_path))
             else:
                 # If no folders specified, monitor entire base path
-                new_file_paths.append(base_path)
+                new_file_paths.append(self._normalize_filesystem_path(base_path))
         
         self.policy_file_paths = list(dict.fromkeys(new_file_paths))
         self.policy_clipboard_rules = clipboard_policies
-        self.usb_transfer_policies = usb_transfer_policies
+        # Normalize paths inside USB transfer policies for reliable matching
+        self.usb_transfer_policies = self._normalize_usb_transfer_policies(usb_transfer_policies)
+        self.usb_transfer_policy_present = bool(self.usb_transfer_policies)
 
-        if self.observers:
-            self._restart_file_monitoring()
+        # Derive capability flags from bundle
+        self.has_file_policies = bool(file_policies or google_drive_local_policies or usb_transfer_policies)
+        self.has_clipboard_policies = bool(clipboard_policies)
+        self.has_usb_device_policies = bool(usb_device_policies)
+        self.has_usb_transfer_policies = bool(usb_transfer_policies)
+        self.has_gdrive_local_policies = bool(google_drive_local_policies)
+        self.has_any_policies = any([
+            self.has_file_policies,
+            self.has_clipboard_policies,
+            self.has_usb_device_policies,
+            self.has_usb_transfer_policies,
+            self.has_gdrive_local_policies,
+        ])
+        self.allow_events = self.has_any_policies
+
+        # If policies require transfer blocking, enable the watcher even if config file has it disabled
+        if self.usb_transfer_policy_present and not self.transfer_blocking_enabled:
+            self.transfer_blocking_enabled = True
+            logger.info("Enabling removable drive monitoring due to usb_file_transfer_monitoring policies")
+
+        # Reconcile monitor state with current policies
+        self._reconcile_monitors()
 
     def _resolve_monitored_paths(self) -> List[str]:
         """Determine effective monitored paths based on policy bundle."""
@@ -416,17 +462,21 @@ class DLPAgent:
         if not self.usb_transfer_policies or not source_path:
             return None
 
-        normalized_src = source_path.lower()
+        normalized_src = self._normalize_compare_path(source_path)
         for policy in self.usb_transfer_policies:
             config = policy.get("config", {})
             for path in config.get("monitoredPaths", []):
-                expanded = self._expand_path(path).lower()
-                if expanded and normalized_src.startswith(expanded):
+                expanded = self._normalize_compare_path(path)
+                if expanded and self._is_path_prefix(normalized_src, expanded):
                     return policy
         return None
 
     def start_file_monitoring(self):
         """Start monitoring file system"""
+        if not self.has_file_policies:
+            logger.info("Skipping file monitoring start; no active file/drive/usb-transfer policies")
+            return
+
         monitored_paths = self._resolve_monitored_paths()
         self.monitored_directories = []  # Track monitored directories for transfer blocking
 
@@ -435,8 +485,8 @@ class DLPAgent:
             return
 
         for path in monitored_paths:
-            # Expand environment variables (e.g., %USERNAME%)
-            expanded_path = self._expand_path(path)
+            # Expand and normalize environment variables (e.g., %USERNAME%)
+            expanded_path = self._normalize_filesystem_path(path)
             
             if os.path.exists(expanded_path):
                 self.monitored_directories.append(expanded_path)  # Track for transfer blocking
@@ -449,11 +499,23 @@ class DLPAgent:
             else:
                 logger.warning(f"Path does not exist: {expanded_path}")
 
+    def stop_file_monitoring(self):
+        """Stop all file observers."""
+        for observer in self.observers:
+            observer.stop()
+            observer.join()
+        self.observers = []
+        self.monitored_directories = []
+        logger.info("File monitoring stopped")
+
     def monitor_clipboard(self):
         """Monitor clipboard for sensitive data"""
         logger.info("Clipboard monitoring started")
 
         while self.running:
+            if not self.has_clipboard_policies or not self.allow_events:
+                time.sleep(2)
+                continue
             try:
                 win32clipboard.OpenClipboard()
                 try:
@@ -491,6 +553,9 @@ class DLPAgent:
                     known_devices = set()
 
                     while self.running:
+                        if not self.has_usb_device_policies or not self.allow_events:
+                            time.sleep(5)
+                            continue
                         try:
                             for usb in c.Win32_USBHub():
                                 device_id = usb.DeviceID
@@ -545,6 +610,10 @@ class DLPAgent:
         
         while self.running:
             try:
+                if not self.transfer_blocking_enabled or not self.has_usb_transfer_policies or not self.allow_events:
+                    time.sleep(poll_interval)
+                    continue
+
                 current_drives = set(self.get_removable_drives())
                 
                 # Find newly connected drives
@@ -600,6 +669,8 @@ class DLPAgent:
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
+            if not self.allow_events or not self.has_file_policies:
+                return
             # Deduplication: Check if we recently sent an event for this file/type
             dedup_key = (file_path, event_type)
             now = time.time()
@@ -754,6 +825,8 @@ class DLPAgent:
     def handle_usb_event(self, device_name: str, device_id: str):
         """Handle USB device event"""
         try:
+            if not self.allow_events or not self.has_usb_device_policies:
+                return
             event_data = {
                 "event_id": str(uuid.uuid4()),
                 "event_type": "usb",
@@ -786,6 +859,8 @@ class DLPAgent:
             file_path: Path to file on removable drive (e.g., "E:\\document.pdf")
         """
         try:
+            if not self.allow_events or not self.has_usb_transfer_policies:
+                return
             logger.info(f"File detected on removable drive: {file_path}")
             
             # Normalize path (handle both E:file.txt and E:\file.txt)
@@ -1092,9 +1167,84 @@ class DLPAgent:
         except:
             return ""
 
+    def _normalize_filesystem_path(self, path: str) -> str:
+        """
+        Normalize a path for filesystem access on Windows:
+        - Expand env vars and user tokens
+        - Replace forward slashes with backslashes
+        """
+        expanded = self._expand_path(path or "")
+        return expanded.replace("/", "\\")
+
+    def _normalize_compare_path(self, path: str) -> str:
+        """
+        Normalize a path for comparisons:
+        - Expand env vars
+        - Replace slashes
+        - Collapse redundant segments
+        - Lowercase for case-insensitive Windows comparisons
+        """
+        normalized = os.path.normpath(self._normalize_filesystem_path(path))
+        return normalized.lower()
+
+    def _is_path_prefix(self, candidate: str, prefix: str) -> bool:
+        """
+        Check whether prefix is a directory prefix of candidate.
+        Both arguments must already be normalized and lowercased.
+        """
+        if candidate == prefix:
+            return True
+        return candidate.startswith(prefix + "\\")
+
+    def _normalize_path_list(self, paths: List[str]) -> List[str]:
+        """Normalize a list of paths for consistency in bundles."""
+        return [self._normalize_filesystem_path(p) for p in paths if p]
+
+    def _normalize_usb_transfer_policies(self, policies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Normalize monitoredPaths inside USB transfer policies to avoid slash mismatches."""
+        normalized = []
+        for policy in policies:
+            cfg = dict(policy.get("config", {}))
+            cfg["monitoredPaths"] = self._normalize_path_list(cfg.get("monitoredPaths", []))
+            normalized.append({**policy, "config": cfg})
+        return normalized
+
+    def _ensure_transfer_blocking_thread(self):
+        """Start removable drive monitoring if enabled by config or policies."""
+        if self.transfer_blocking_enabled and not self.transfer_blocking_thread_started:
+            threading.Thread(target=self.monitor_removable_drives, daemon=True).start()
+            self.transfer_blocking_thread_started = True
+            logger.info("Removable drive monitoring thread started")
+
+    def _reconcile_monitors(self):
+        """Start or stop monitors based on current policy presence."""
+        # File monitoring (covers file system and Google Drive local)
+        if self.has_file_policies:
+            if not self.observers:
+                self.start_file_monitoring()
+        else:
+            if self.observers:
+                self.stop_file_monitoring()
+
+        # Clipboard monitoring and USB device monitoring are long-running threads; gating handled inside loops
+
+        # Removable drive monitoring for USB transfer
+        if self.has_usb_transfer_policies:
+            self._ensure_transfer_blocking_thread()
+        else:
+            # Stop any removable-drive observers and clear state
+            for drive, observer in list(self.removable_observers.items()):
+                observer.stop()
+                observer.join()
+                self.removable_observers.pop(drive, None)
+            self.removable_drives = set()
+
     def send_event(self, event_data: Dict[str, Any]):
         """Send event to server"""
         try:
+            if not self.allow_events:
+                logger.debug("Dropping event because no active policies")
+                return
             response = requests.post(
                 f"{self.server_url}/events",
                 json=event_data,

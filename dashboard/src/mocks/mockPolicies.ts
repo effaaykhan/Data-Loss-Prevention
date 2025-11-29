@@ -31,7 +31,6 @@ export interface FileSystemConfig {
     modify: boolean
     delete: boolean
     move: boolean
-    copy: boolean
   }
   action: FileSystemAction
   quarantinePath?: string
@@ -138,8 +137,7 @@ export const mockPolicies: Policy[] = [
         create: true,
         modify: true,
         delete: true,
-        move: true,
-        copy: true
+        move: true
       },
       action: 'quarantine',
       quarantinePath: 'C:\\Quarantine'
@@ -211,8 +209,7 @@ export const mockPolicies: Policy[] = [
         create: true,
         modify: false,
         delete: false,
-        move: false,
-        copy: false
+        move: false
       },
       action: 'log'
     } as FileSystemConfig
@@ -276,8 +273,7 @@ export const mockPolicies: Policy[] = [
         create: true,
         modify: true,
         delete: true,
-        move: true,
-        copy: true
+        move: true
       },
       action: 'alert',
     } as FileSystemConfig
@@ -360,4 +356,3 @@ export const getInactivePolicies = (): Policy[] => {
 export const getPolicyById = (id: string): Policy | undefined => {
   return mockPolicies.find(p => p.id === id)
 }
-

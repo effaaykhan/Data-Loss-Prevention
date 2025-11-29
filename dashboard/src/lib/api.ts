@@ -333,6 +333,11 @@ export const disablePolicy = async (policyId: string) => {
   return data
 }
 
+export const refreshPolicyBundles = async () => {
+  const { data } = await apiClient.post('/policies/cache/refresh')
+  return data
+}
+
 // Events helper used by dashboard pages
 export const getEvents = async (params?: any) => {
   const { data } = await apiClient.get('/events', { params })

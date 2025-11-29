@@ -117,6 +117,22 @@ class CacheService:
             logger.warning("Cache delete failed", key=key, error=str(e))
             return False
 
+    async def delete_prefix(self, prefix: str) -> int:
+        """
+        Delete all keys matching a given prefix.
+
+        Returns number of keys deleted.
+        """
+        try:
+            deleted = 0
+            async for key in self.client.scan_iter(f"{prefix}*"):
+                await self.client.delete(key)
+                deleted += 1
+            return deleted
+        except Exception as e:
+            logger.warning("Cache delete_prefix failed", prefix=prefix, error=str(e))
+            return 0
+
     async def exists(self, key: str) -> bool:
         """
         Check if key exists in cache

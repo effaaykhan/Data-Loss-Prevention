@@ -242,7 +242,7 @@ export default function GoogleDriveLocalPolicyForm({ config, onChange }: GoogleD
           Event Types to Monitor
         </label>
         <div className="space-y-2">
-          {(['create', 'modify', 'delete', 'move', 'copy'] as const).map((event) => (
+          {(['create', 'modify', 'delete', 'move'] as const).map((event) => (
             <label key={event} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -291,4 +291,3 @@ export default function GoogleDriveLocalPolicyForm({ config, onChange }: GoogleD
     </div>
   )
 }
-

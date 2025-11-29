@@ -238,9 +238,7 @@ export default function FileSystemPolicyForm({ config, onChange }: FileSystemPol
                 <div className="text-white font-medium text-sm capitalize">
                   File {event}
                 </div>
-                <div className="text-gray-400 text-xs">
-                  {event === 'copy' ? 'Monitor file copy operations (Windows only)' : `Monitor file ${event} operations`}
-                </div>
+                <div className="text-gray-400 text-xs">{`Monitor file ${event} operations`}</div>
               </div>
             </label>
           ))}
@@ -329,4 +327,3 @@ export default function FileSystemPolicyForm({ config, onChange }: FileSystemPol
     </div>
   )
 }
-

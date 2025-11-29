@@ -47,8 +47,7 @@ const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig 
           create: true,
           modify: false,
           delete: false,
-          move: false,
-          copy: false
+          move: false
         },
         action: 'alert'
       } as FileSystemConfig
@@ -77,8 +76,7 @@ const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig 
           create: true,
           modify: false,
           delete: false,
-          move: false,
-          copy: false
+          move: false
         },
         action: 'alert'
       } as GoogleDriveLocalConfig
@@ -477,4 +475,3 @@ export default function PolicyCreatorModal({
     </div>
   )
 }
-

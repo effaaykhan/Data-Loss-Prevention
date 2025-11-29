@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Shield, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Shield, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import PolicyCreatorModal from '@/components/policies/PolicyCreatorModal'
 import PolicyTable from '@/components/policies/PolicyTable'
 import PolicyDetailsModal from '@/components/policies/PolicyDetailsModal'
@@ -13,11 +13,13 @@ import {
   deletePolicy,
   enablePolicy,
   disablePolicy,
+  refreshPolicyBundles,
 } from '@/lib/api'
 import { transformApiPolicyToFrontend, transformFrontendPolicyToApi } from '@/utils/policyUtils'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
+import { formatDistanceToNow } from 'date-fns'
 
 type PolicyStats = {
   total: number
@@ -32,6 +34,7 @@ export default function PoliciesPage() {
   const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null)
   const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
 
   // Fetch policies from API
   const {
@@ -197,6 +200,19 @@ export default function PoliciesPage() {
     deleteMutation.mutate(policy.id)
   }
 
+  const refreshBundlesMutation = useMutation({
+    mutationFn: refreshPolicyBundles,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['policies'] })
+      queryClient.invalidateQueries({ queryKey: ['policy-stats'] })
+      setLastRefreshAt(new Date())
+      toast.success('Policy bundles refresh triggered. Agents will sync within ~60s.')
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.detail || 'Failed to refresh policy bundles')
+    },
+  })
+
   const activePolicies = policies.filter(p => p.enabled)
   const inactivePolicies = policies.filter(p => !p.enabled)
 
@@ -231,6 +247,14 @@ export default function PoliciesPage() {
         <div className="flex-1" />
         <div className="flex items-center gap-3">
           <button
+            onClick={() => refreshBundlesMutation.mutate()}
+            disabled={refreshBundlesMutation.isPending}
+            className="flex items-center gap-2 border border-gray-300 text-gray-800 px-4 py-3 rounded-xl hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshBundlesMutation.isPending ? 'animate-spin' : ''}`} />
+            {refreshBundlesMutation.isPending ? 'Refreshing…' : 'Refresh Bundles'}
+          </button>
+          <button
             onClick={handleCreatePolicy}
             className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all"
           >
@@ -238,6 +262,11 @@ export default function PoliciesPage() {
             Create Policy
           </button>
         </div>
+        {lastRefreshAt && (
+          <p className="w-full text-sm text-gray-500">
+            Last refresh triggered {formatDistanceToNow(lastRefreshAt, { addSuffix: true })}
+          </p>
+        )}
       </div>
 
       {/* Stats */}

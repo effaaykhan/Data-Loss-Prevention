@@ -455,7 +455,7 @@ async def sync_agent_policies(
     generated_at = datetime.fromisoformat(generated_at_raw.replace("Z", "+00:00")) if generated_at_raw else datetime.utcnow()
 
     if sync_request.installed_version and sync_request.installed_version == version:
-        logger.debug("Agent policy bundle up-to-date", agent_id=agent_id, platform=platform, version=version)
+        logger.info("Agent policy bundle up-to-date", agent_id=agent_id, platform=platform, version=version)
         return AgentPolicySyncResponse(
             status="up_to_date",
             version=version,

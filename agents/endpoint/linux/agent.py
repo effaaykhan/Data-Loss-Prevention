@@ -62,6 +62,7 @@ class AgentConfig:
             "agent_id": str(uuid.uuid4()),
             "agent_name": "Linux-Agent",  # Default name for Linux agents
             "heartbeat_interval": 30,  # Reduced from 60s to 30s for more frequent updates
+            "policy_sync_interval": 60,  # More responsive bundle refresh (was 300s)
             "monitoring": {
                 "file_system": True,
                 "monitored_paths": [
@@ -89,6 +90,9 @@ class AgentConfig:
                     default_config.update(loaded_config)
             except Exception as e:
                 logger.error(f"Error loading config: {e}, using defaults")
+
+        # Enforce faster policy sync cadence
+        default_config["policy_sync_interval"] = 60
         
         # Save config (create directory if needed and accessible)
         try:
@@ -133,6 +137,11 @@ class FileMonitorHandler(FileSystemEventHandler):
         if not event.is_directory and self._should_monitor(event.dest_path):
             self.agent.handle_file_event("file_moved", event.dest_path)
 
+    def on_deleted(self, event: FileSystemEvent):
+        """Handle file deletion"""
+        if not event.is_directory and self._should_monitor(event.src_path):
+            self.agent.handle_file_event("file_deleted", event.src_path)
+
     def _should_monitor(self, file_path: str) -> bool:
         """Check if file should be monitored"""
         # Check exclusions
@@ -158,8 +167,10 @@ class DLPAgent:
         self.observers = []
         self.policy_bundle = None
         self.policy_file_paths: List[str] = []
+        self.has_file_policies: bool = False
+        self.allow_events: bool = False
         self.active_policy_version: Optional[str] = None
-        self.policy_sync_interval = self.config.get("policy_sync_interval", 300)
+        self.policy_sync_interval = self.config.get("policy_sync_interval", 60)
         self.policy_capabilities = {"file_monitoring": self.config.get("monitoring", {}).get("file_system", True)}
         self.last_policy_sync_at: Optional[str] = None
         self.last_policy_sync_status: str = "never"
@@ -183,7 +194,7 @@ class DLPAgent:
             threading.Thread(target=self.policy_sync_loop, daemon=True).start()
 
         # Start file system monitoring
-        if self.config.get("monitoring", {}).get("file_system", True):
+        if self.config.get("monitoring", {}).get("file_system", True) and self.has_file_policies:
             self.start_file_monitoring()
 
         # Start heartbeat
@@ -271,6 +282,7 @@ class DLPAgent:
 
     def sync_policies(self, initial: bool = False):
         try:
+            logger.info("Syncing policy bundle", extra={"installed_version": self.active_policy_version})
             payload = {
                 "platform": "linux",
                 "capabilities": self.policy_capabilities,
@@ -292,8 +304,10 @@ class DLPAgent:
 
             data = response.json()
             if data.get("status") == "up_to_date":
-                if initial:
-                    logger.info("Agent policy bundle already up to date")
+                logger.info(
+                    "Agent policy bundle up to date",
+                    extra={"version": self.active_policy_version or data.get("version")}
+                )
                 self.last_policy_sync_status = "up_to_date"
                 self.last_policy_sync_error = None
                 self.last_policy_sync_at = datetime.utcnow().isoformat() + "Z"
@@ -330,8 +344,12 @@ class DLPAgent:
             new_paths.extend(config.get("monitoredPaths", []))
         self.policy_file_paths = list(dict.fromkeys(new_paths))
 
-        if self.observers:
-            self._restart_file_monitoring()
+        # Policy presence flags
+        self.has_file_policies = bool(file_policies or usb_transfer_policies)
+        self.allow_events = self.has_file_policies
+
+        # Reconcile monitoring based on current policies
+        self._reconcile_monitors()
 
     def _restart_file_monitoring(self):
         logger.info("Restarting file monitors with updated policies")
@@ -368,9 +386,28 @@ class DLPAgent:
             else:
                 logger.warning(f"Path does not exist: {expanded_path}")
 
+    def stop_file_monitoring(self):
+        """Stop all file observers."""
+        for observer in self.observers:
+            observer.stop()
+            observer.join()
+        self.observers = []
+        logger.info("File monitoring stopped")
+
+    def _reconcile_monitors(self):
+        """Start or stop monitors based on active policies."""
+        if self.has_file_policies:
+            if not self.observers:
+                self.start_file_monitoring()
+        else:
+            if self.observers:
+                self.stop_file_monitoring()
+
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
+            if not self.allow_events or not self.has_file_policies:
+                return
             # Deduplication: Check if we recently sent an event for this file/type
             dedup_key = (file_path, event_type)
             now = time.time()
@@ -501,6 +538,9 @@ class DLPAgent:
     def send_event(self, event_data: Dict[str, Any]):
         """Send event to server"""
         try:
+            if not self.allow_events:
+                logger.debug("Dropping event because no active policies")
+                return
             if self.active_policy_version and "policy_version" not in event_data:
                 event_data["policy_version"] = self.active_policy_version
 

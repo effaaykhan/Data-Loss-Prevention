@@ -189,8 +189,7 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
             "create": true,
             "modify": true,
             "delete": false,
-            "move": true,
-            "copy": false
+            "move": true
         },
         "action": "alert" | "quarantine" | "block" | "log",
         "quarantinePath": "C:\\Quarantine" (optional)
@@ -237,13 +236,12 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
                 }
             )
 
-    # Add event type rules
+    # Add event type rules (copy is not supported for local filesystem monitoring yet)
     event_name_map = {
         "create": "file_created",
         "modify": "file_modified",
         "delete": "file_deleted",
         "move": "file_moved",
-        "copy": "file_copied",
     }
     enabled_events = [
         event_name_map.get(event, event)
@@ -298,8 +296,7 @@ def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[s
             "create": true,
             "modify": true,
             "delete": false,
-            "move": true,
-            "copy": false
+            "move": true
         },
         "action": "alert" | "quarantine" | "block" | "log",
         "quarantinePath": "C:\\Quarantine" (optional)
@@ -376,13 +373,12 @@ def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[s
         }
     )
 
-    # Add event type rules
+    # Add event type rules (copy is not supported for local Google Drive monitoring yet)
     event_name_map = {
         "create": "file_created",
         "modify": "file_modified",
         "delete": "file_deleted",
         "move": "file_moved",
-        "copy": "file_copied",
     }
     enabled_events = [
         event_name_map.get(event, event)
@@ -561,15 +557,14 @@ def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[s
 
     Frontend format:
     {
-        "basePath": "G:\\",  // Default: "G:\\"
+        "basePath": "G:\\My Drive\\",  // Default: "G:\\My Drive\\"
         "monitoredFolders": ["Folder1", "Folder2/Subfolder"],
         "fileExtensions": [".pdf", ".docx"],  // Optional
         "events": {
             "create": true,
             "modify": true,
             "delete": false,
-            "move": true,
-            "copy": false
+            "move": true
         },
         "action": "alert" | "quarantine" | "block" | "log",
         "quarantinePath": "C:\\Quarantine" (optional)
@@ -646,13 +641,12 @@ def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[s
         }
     )
 
-    # Add event type rules
+    # Add event type rules (copy is not supported for this legacy helper)
     event_name_map = {
         "create": "file_created",
         "modify": "file_modified",
         "delete": "file_deleted",
         "move": "file_moved",
-        "copy": "file_copied",
     }
     enabled_events = [
         event_name_map.get(event, event)
@@ -692,4 +686,3 @@ def _transform_google_drive_local_config(config: Dict[str, Any]) -> Tuple[Dict[s
         actions[action] = {}
 
     return conditions, actions
-

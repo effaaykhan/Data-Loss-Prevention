@@ -15,6 +15,7 @@ import structlog
 
 from app.core.security import get_current_user, require_role
 from app.core.database import get_db, get_mongodb
+from app.core.cache import get_cache, CacheService
 from app.services.policy_service import PolicyService
 from app.utils.policy_transformer import transform_frontend_config_to_backend
 from app.models.user import User
@@ -22,6 +23,22 @@ from app.models.google_drive import GoogleDriveProtectedFolder, GoogleDriveConne
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+
+async def invalidate_policy_bundle_cache() -> None:
+    """
+    Clear cached agent policy bundles so agents receive fresh versions
+    after policy mutations (create/update/enable/disable/delete).
+    """
+    try:
+        cache_service = CacheService(get_cache())
+    except RuntimeError:
+        # Cache not initialized; skip invalidation without failing request
+        logger.debug("Cache not initialized; skipping policy bundle cache invalidation")
+        return
+
+    deleted = await cache_service.delete_prefix("agent-policy-bundle:")
+    logger.info("Policy bundle cache invalidated", keys_deleted=deleted)
 
 
 # ... (Existing Pydantic models: PolicyCondition, PolicyAction, Policy - Keep them as is)
@@ -264,6 +281,7 @@ async def create_policy(
             policy_id=str(created_policy.id),
             user=current_user.email,
         )
+        await invalidate_policy_bundle_cache()
 
         return {
             "id": str(created_policy.id),
@@ -337,6 +355,7 @@ async def update_policy(
             policy_id=policy_id,
             user=current_user.email,
         )
+        await invalidate_policy_bundle_cache()
 
         return {
             "id": str(updated_policy.id),
@@ -377,6 +396,7 @@ async def delete_policy(
         policy_id=policy_id,
         user=current_user.email,
     )
+    await invalidate_policy_bundle_cache()
 
     return {"message": "Policy deleted successfully"}
 
@@ -399,6 +419,7 @@ async def enable_policy(
         policy_id=policy_id,
         user=current_user.email,
     )
+    await invalidate_policy_bundle_cache()
 
     return {"message": "Policy enabled successfully", "policy_id": str(policy.id)}
 
@@ -421,8 +442,21 @@ async def disable_policy(
         policy_id=policy_id,
         user=current_user.email,
     )
+    await invalidate_policy_bundle_cache()
 
     return {"message": "Policy disabled successfully", "policy_id": str(policy.id)}
+
+
+@router.post("/cache/refresh")
+async def refresh_policy_bundles(
+    current_user: User = Depends(require_role("analyst")),
+):
+    """
+    Manually invalidate cached agent policy bundles.
+    Agents will pull a fresh bundle on their next sync.
+    """
+    await invalidate_policy_bundle_cache()
+    return {"message": "Policy bundle cache cleared", "status": "ok"}
 
 
 @router.get("/stats/summary")
