@@ -332,6 +332,63 @@ class EventProcessor:
                 "pattern": r'\b[A-Za-z0-9_-]{32,}\b',
                 "label": "API_KEY",
                 "severity": "high"
+            },
+            # Indian identifiers
+            "aadhaar": {
+                "pattern": r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b',
+                "label": "AADHAAR",
+                "severity": "critical"
+            },
+            "pan": {
+                "pattern": r'\b[A-Z]{5}\d{4}[A-Z]{1}\b',
+                "label": "PAN",
+                "severity": "critical"
+            },
+            "ifsc": {
+                "pattern": r'\b[A-Z]{4}0[A-Z0-9]{6}\b',
+                "label": "IFSC",
+                "severity": "high"
+            },
+            "indian_bank_account": {
+                "pattern": r'\b\d{9,18}\b',
+                "label": "INDIAN_BANK_ACCOUNT",
+                "severity": "high"
+            },
+            "indian_phone": {
+                "pattern": r'\b(\+91|91|0)?[6-9]\d{9}\b',
+                "label": "INDIAN_PHONE",
+                "severity": "medium"
+            },
+            "upi_id": {
+                "pattern": r'\b[\w.-]+@(paytm|phonepe|ybl|okaxis|okhdfcbank|oksbi|okicici)\b',
+                "label": "UPI_ID",
+                "severity": "high"
+            },
+            "micr": {
+                "pattern": r'\b\d{9}\b',
+                "label": "MICR",
+                "severity": "medium"
+            },
+            "indian_dob": {
+                "pattern": r'\b(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](19|20)\d{2}\b',
+                "label": "INDIAN_DOB",
+                "severity": "medium"
+            },
+            # Source code detection
+            "source_code_content": {
+                "pattern": r'\b(function|def|class|public|private|protected|static|import|from|require|include|using|package|const|let|var|int|string|float|bool)\s+\w+',
+                "label": "SOURCE_CODE",
+                "severity": "high"
+            },
+            "api_key_in_code": {
+                "pattern": r'(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9_\-]{32,}["\']?)',
+                "label": "API_KEY_IN_CODE",
+                "severity": "critical"
+            },
+            "database_connection_string": {
+                "pattern": r'(jdbc:(mysql|postgresql|oracle|sqlserver)://|mongodb://|mongodb\+srv://|redis://|rediss://)',
+                "label": "DATABASE_CONNECTION",
+                "severity": "critical"
             }
         }
 

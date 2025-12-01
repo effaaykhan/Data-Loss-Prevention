@@ -11,9 +11,9 @@ export type PolicyType =
 
 export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical'
 export type ClipboardAction = 'alert' | 'log'
-export type FileSystemAction = 'alert' | 'quarantine' | 'block' | 'log'
+export type FileSystemAction = 'alert' | 'block' | 'log'
 export type USBDeviceAction = 'alert' | 'log' | 'block'
-export type USBTransferAction = 'block' | 'quarantine' | 'alert'
+export type USBTransferAction = 'block' | 'alert'
 
 export interface ClipboardConfig {
   patterns: {
@@ -117,7 +117,7 @@ export const mockPolicies: Policy[] = [
   {
     id: 'policy-003',
     name: 'Protect Financial Documents',
-    description: 'Monitors financial document directories and quarantines suspicious files',
+    description: 'Monitors financial document directories and blocks or alerts on suspicious files',
     type: 'file_system_monitoring',
     enabled: true,
     severity: 'high',
@@ -139,8 +139,7 @@ export const mockPolicies: Policy[] = [
         delete: true,
         move: true
       },
-      action: 'quarantine',
-      quarantinePath: 'C:\\Quarantine'
+      action: 'block'
     } as FileSystemConfig
   },
   {
@@ -228,8 +227,7 @@ export const mockPolicies: Policy[] = [
     violations: 0,
     config: {
       monitoredPaths: ['C:\\Test'],
-      action: 'quarantine',
-      quarantinePath: 'C:\\Quarantine\\Test'
+      action: 'block'
     } as USBTransferConfig
   },
   {

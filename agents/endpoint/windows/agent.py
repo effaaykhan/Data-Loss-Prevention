@@ -190,6 +190,7 @@ class DLPAgent:
         # Deduplication: Track recent events to prevent duplicates
         self.recent_events = {}  # {(file_path, event_type): timestamp}
         self.dedup_window_seconds = 2  # Ignore duplicate events within 2 seconds
+        self._clipboard_miss_log_ts = 0.0
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -278,7 +279,8 @@ class DLPAgent:
                 "hostname": socket.gethostname(),
                 "os": "windows",
                 "os_version": platform.platform(),
-                "ip_address": socket.gethostbyname(socket.gethostname()),
+                # Use real interface IP instead of hostname resolution (works better in WSL/VPN setups)
+                "ip_address": self._get_real_ip_address(),
                 "version": "1.0.0",
                 "capabilities": self.policy_capabilities
             }
@@ -427,6 +429,32 @@ class DLPAgent:
         ])
         self.allow_events = self.has_any_policies
 
+        # Log active policy types for easier debugging
+        try:
+            clipboard_names = [p.get("name") for p in clipboard_policies]
+            file_names = [p.get("name") for p in file_policies]
+            usb_names = [p.get("name") for p in usb_device_policies]
+            usb_transfer_names = [p.get("name") for p in usb_transfer_policies]
+            gdrive_local_names = [p.get("name") for p in google_drive_local_policies]
+
+            logger.info(
+                "Applied policy bundle",
+                extra={
+                    "has_clipboard_policies": self.has_clipboard_policies,
+                    "clipboard_policies": clipboard_names,
+                    "has_file_policies": self.has_file_policies,
+                    "file_policies": file_names,
+                    "has_usb_device_policies": self.has_usb_device_policies,
+                    "usb_device_policies": usb_names,
+                    "has_usb_transfer_policies": self.has_usb_transfer_policies,
+                    "usb_transfer_policies": usb_transfer_names,
+                    "has_gdrive_local_policies": self.has_gdrive_local_policies,
+                    "gdrive_local_policies": gdrive_local_names,
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Failed to log applied policy bundle: {e}")
+
         # If policies require transfer blocking, enable the watcher even if config file has it disabled
         if self.usb_transfer_policy_present and not self.transfer_blocking_enabled:
             self.transfer_blocking_enabled = True
@@ -519,11 +547,38 @@ class DLPAgent:
             try:
                 win32clipboard.OpenClipboard()
                 try:
-                    if win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
+                    text = None
+                    format_detected = None
+
+                    # Prefer Unicode text (CF_UNICODETEXT) – this is what most modern apps use for Ctrl+C
+                    if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+                        text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+                        format_detected = "CF_UNICODETEXT"
+
+                    # Fallback to ANSI text (CF_TEXT) for older applications
+                    elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
                         data = win32clipboard.GetClipboardData(win32con.CF_TEXT)
-                        if data and data != self.last_clipboard:
-                            self.last_clipboard = data
-                            self.handle_clipboard_event(data.decode('utf-8', errors='ignore'))
+                        if isinstance(data, bytes):
+                            text = data.decode("mbcs", errors="ignore")
+                        else:
+                            text = data
+                        format_detected = "CF_TEXT"
+
+                    if text and text != self.last_clipboard:
+                        self.last_clipboard = text
+                         logger.info(
+                             "Clipboard text captured",
+                             extra={
+                                 "format": format_detected,
+                                 "length": len(text),
+                             },
+                         )
+                        self.handle_clipboard_event(text)
+                    elif not format_detected:
+                        now = time.time()
+                        if now - self._clipboard_miss_log_ts > 30:
+                            logger.debug("Clipboard did not contain text formats (CF_UNICODETEXT/CF_TEXT)")
+                            self._clipboard_miss_log_ts = now
                 finally:
                     win32clipboard.CloseClipboard()
             except Exception as e:
@@ -791,33 +846,105 @@ class DLPAgent:
     def handle_clipboard_event(self, content: str):
         """Handle clipboard event"""
         try:
-            # Classify clipboard content
+            if not content:
+                return
+
+            # Classify clipboard content (best-effort, backend will re-evaluate)
             classification = self._classify_content(content)
+            labels = set(classification.get("labels") or [])
+            if not labels:
+                # Nothing sensitive detected locally; skip
+                return
 
-            if classification.get("labels"):
-                event_data = {
-                    "event_id": str(uuid.uuid4()),
-                    "event_type": "clipboard",
-                    "event_subtype": "clipboard_copy",
-                    "agent_id": self.agent_id,
-                    "source_type": "agent",
-                    "user_email": f"{os.getlogin()}@{socket.gethostname()}",
-                    "description": "Sensitive data copied to clipboard",
-                    "severity": classification.get("severity", "medium"),
-                    "action": "alerted",
-                    "classification": classification,
-                    "content": content[:5000],
-                    "details": {
-                        "content_preview": content[:200] if len(content) > 200 else content
-                    },
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+            # Map clipboard policy pattern IDs -> classification labels
+            pattern_to_label = {
+                "aadhaar": "AADHAAR",
+                "pan": "PAN",
+                "ifsc": "IFSC",
+                "indian_bank_account": "INDIAN_BANK_ACCOUNT",
+                "indian_phone": "INDIAN_PHONE",
+                "upi_id": "UPI_ID",
+                "micr": "MICR",
+                "indian_dob": "INDIAN_DOB",
+                "source_code_content": "SOURCE_CODE",
+                "api_key_in_code": "API_KEY_IN_CODE",
+                "database_connection_string": "DATABASE_CONNECTION",
+                # Legacy / generic patterns
+                "ssn": "SSN",
+                "credit_card": "PAN_CARD",
+                "email": "EMAIL",
+                "api_key": "API_KEY",
+            }
 
-                if self.active_policy_version:
-                    event_data["policy_version"] = self.active_policy_version
+            matched_policy_refs = []
+            for policy in self.policy_clipboard_rules:
+                cfg = policy.get("config", {})
+                patterns = cfg.get("patterns", {})
+                predefined = patterns.get("predefined", []) or []
+                # Custom patterns are handled server-side; agent doesn't know their semantics
+                allowed_labels = {pattern_to_label.get(p) for p in predefined if pattern_to_label.get(p)}
+                if not allowed_labels:
+                    continue
+                if labels & allowed_labels:
+                    matched_policy_refs.append(
+                        {
+                            "id": policy.get("id"),
+                            "name": policy.get("name"),
+                            "severity": policy.get("severity", "medium"),
+                        }
+                    )
 
-                self.send_event(event_data)
-                logger.info(f"Clipboard event: {classification.get('labels')}")
+            # If none of the active clipboard policies care about these labels, drop the event
+            if not matched_policy_refs:
+                logger.debug(
+                    "Clipboard content classified but no matching clipboard policy patterns; dropping event",
+                    extra={"labels": list(labels)},
+                )
+                return
+
+            policy_refs = matched_policy_refs
+
+            policy_severities = [ref["severity"] for ref in policy_refs if ref.get("severity")]
+            severity = self._max_severity([
+                classification.get("severity"),
+                *policy_severities,
+                "medium",
+            ])
+
+            details = {
+                "content_preview": content[:200] if len(content) > 200 else content,
+            }
+            if policy_refs:
+                details["clipboard_policies"] = policy_refs
+
+            event_data = {
+                "event_id": str(uuid.uuid4()),
+                "event_type": "clipboard",
+                "event_subtype": "clipboard_copy",
+                "agent_id": self.agent_id,
+                "source_type": "agent",
+                "user_email": f"{os.getlogin()}@{socket.gethostname()}",
+                "description": "Clipboard content captured for policy evaluation",
+                "severity": severity,
+                "action": "alerted",
+                "classification": classification,
+                "content": content[:5000],
+                "details": details,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+            if self.active_policy_version:
+                event_data["policy_version"] = self.active_policy_version
+
+            self.send_event(event_data)
+            logger.info(
+                "Clipboard event sent",
+                extra={
+                    "length": len(content),
+                    "severity": severity,
+                    "labels": classification.get("labels"),
+                },
+            )
 
         except Exception as e:
             logger.error(f"Error handling clipboard event: {e}")
@@ -1116,12 +1243,12 @@ class DLPAgent:
         labels = []
         severity = "low"
 
-        # Credit card detection
+        # Credit card-like PAN (16-digit) – legacy
         if re.search(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b', content):
-            labels.append("PAN")
+            labels.append("PAN_CARD")
             severity = "critical"
 
-        # SSN detection
+        # SSN (legacy US identifier)
         if re.search(r'\b\d{3}-\d{2}-\d{4}\b', content):
             labels.append("SSN")
             severity = "critical"
@@ -1132,10 +1259,85 @@ class DLPAgent:
             if severity == "low":
                 severity = "medium"
 
-        # API key patterns
+        # Generic API key words
         if re.search(r'api[_-]?key|secret[_-]?key|access[_-]?token', content, re.IGNORECASE):
             labels.append("API_KEY")
             severity = "high"
+
+        # --- India-specific identifiers ---
+
+        # Aadhaar: 12 digits in 4-4-4 groups or contiguous
+        if re.search(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b', content):
+            labels.append("AADHAAR")
+            severity = "critical"
+
+        # PAN (Indian tax ID): 5 letters + 4 digits + 1 letter
+        if re.search(r'\b[A-Z]{5}\d{4}[A-Z]\b', content):
+            labels.append("PAN")
+            severity = "critical"
+
+        # IFSC code: 4 letters + 0 + 6 alphanumerics
+        if re.search(r'\b[A-Z]{4}0[A-Z0-9]{6}\b', content):
+            labels.append("IFSC")
+            if severity != "critical":
+                severity = "high"
+
+        # Indian bank account (9–18 digits)
+        if re.search(r'\b\d{9,18}\b', content):
+            labels.append("INDIAN_BANK_ACCOUNT")
+            if severity == "low":
+                severity = "high"
+
+        # Indian phone numbers
+        if re.search(r'\b(\+91|91|0)?[6-9]\d{9}\b', content):
+            labels.append("INDIAN_PHONE")
+            if severity == "low":
+                severity = "medium"
+
+        # UPI IDs
+        if re.search(r'\b[\w.-]+@(paytm|phonepe|ybl|okaxis|okhdfcbank|oksbi|okicici)\b', content, re.IGNORECASE):
+            labels.append("UPI_ID")
+            if severity != "critical":
+                severity = "high"
+
+        # MICR (9 digits)
+        if re.search(r'\b\d{9}\b', content):
+            labels.append("MICR")
+            if severity == "low":
+                severity = "medium"
+
+        # Indian DOB (DD/MM/YYYY or DD-MM-YYYY)
+        if re.search(r'\b(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](19|20)\d{2}\b', content):
+            labels.append("INDIAN_DOB")
+            if severity == "low":
+                severity = "medium"
+
+        # --- Source code / secrets in code ---
+
+        # Generic source code indicators
+        if re.search(r'\b(function|def|class|public|private|protected|static|import|from|require|include|using|package|const|let|var|int|string|float|bool)\s+\w+', content):
+            labels.append("SOURCE_CODE")
+            if severity == "low":
+                severity = "high"
+
+        # API keys in code (AWS, GitHub, generic)
+        if re.search(r'AKIA[0-9A-Z]{16}', content):
+            labels.append("API_KEY_IN_CODE")
+            severity = "critical"
+        if re.search(r'ghp_[A-Za-z0-9]{36}', content):
+            labels.append("API_KEY_IN_CODE")
+            severity = "critical"
+        if re.search(r'api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9_\-]{32,}["\']?', content, re.IGNORECASE):
+            labels.append("API_KEY_IN_CODE")
+            severity = "critical"
+
+        # Database connection strings
+        if re.search(r'jdbc:(mysql|postgresql|oracle|sqlserver)://', content, re.IGNORECASE) or \
+           re.search(r'mongodb(\+srv)?:\/\/', content, re.IGNORECASE) or \
+           re.search(r'rediss?:\/\/', content, re.IGNORECASE):
+            labels.append("DATABASE_CONNECTION")
+            if severity != "critical":
+                severity = "critical"
 
         return {
             "labels": labels,
@@ -1209,6 +1411,17 @@ class DLPAgent:
             normalized.append({**policy, "config": cfg})
         return normalized
 
+    def _max_severity(self, severities: List[Optional[str]]) -> str:
+        """Return highest severity value from provided list."""
+        order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        max_sev = "low"
+        for sev in severities:
+            if not sev:
+                continue
+            if order.get(sev, 0) > order.get(max_sev, 0):
+                max_sev = sev
+        return max_sev
+
     def _ensure_transfer_blocking_thread(self):
         """Start removable drive monitoring if enabled by config or policies."""
         if self.transfer_blocking_enabled and not self.transfer_blocking_thread_started:
@@ -1278,7 +1491,8 @@ class DLPAgent:
             # Send timestamp in ISO format for server validation
             data = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "ip_address": socket.gethostbyname(socket.gethostname())
+                # Keep heartbeat IP aligned with registration IP
+                "ip_address": self._get_real_ip_address(),
             }
             if self.active_policy_version:
                 data["policy_version"] = self.active_policy_version
@@ -1302,6 +1516,35 @@ class DLPAgent:
 
         except Exception as e:
             logger.error(f"Heartbeat failed: {e}", exc_info=True)
+
+    def _get_real_ip_address(self):
+        """Get the real IP address of the Windows machine instead of hostname resolution.
+
+        This mirrors the coworker change on main that avoids incorrect 127.x/WSL hostnames
+        by opening a UDP socket toward the manager host and reading the local bind address.
+        """
+        try:
+            # Extract server host from server_url
+            server_url = self.config.get("server_url", "http://localhost:55000/api/v1")
+            if server_url.startswith("http://"):
+                host_port = server_url[7:].split("/")[0]
+            elif server_url.startswith("https://"):
+                host_port = server_url[8:].split("/")[0]
+            else:
+                host_port = server_url.split("/")[0]
+
+            # Split host and port if present
+            host = host_port.split(":")[0] if ":" in host_port else host_port
+
+            # Create a socket to find the IP address used to reach the server
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                # Connect to the DLP server to determine the real IP
+                s.connect((host, 80))
+                ip = s.getsockname()[0]
+                return ip
+        except Exception:
+            # Fallback to hostname resolution
+            return socket.gethostbyname(socket.gethostname())
 
 
 def main():

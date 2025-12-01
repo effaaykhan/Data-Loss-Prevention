@@ -1,0 +1,31 @@
+Source Code Patterns Test File
+==============================
+
+This file contains source code patterns and sensitive data in code for testing DLP policies.
+
+Function Definitions:
+function connectDB() {
+    const conn = "jdbc:mysql://localhost:3306/mydb";
+    const apiKey = "AKIAIOSFODNN7EXAMPLE";
+}
+
+class DatabaseConnection {
+    def __init__(self):
+        self.connection_string = "mongodb://user:password@localhost:27017/mydb"
+        self.api_key = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+
+API Keys in Code:
+api_key: "not_a_real_key_1234567890abcdefghijklmnopqrstuvwxyz"
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+token = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+Database Connection Strings:
+jdbc:mysql://localhost:3306/mydb?user=root&password=secret
+mongodb://user:password@localhost:27017/mydb
+mongodb+srv://user:password@cluster.mongodb.net/mydb
+redis://localhost:6379/0
+jdbc:postgresql://localhost:5432/mydb
+
+This file should trigger SOURCE_CODE, API_KEY_IN_CODE, and DATABASE_CONNECTION classifications.
+

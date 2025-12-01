@@ -1,0 +1,20 @@
+API Keys Test File
+==================
+
+This file contains various API keys for testing API key detection patterns.
+
+AWS Access Keys:
+AKIAIOSFODNN7EXAMPLE
+AKIA1234567890ABCDEF
+
+GitHub Personal Access Tokens:
+ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ghp_1234567890abcdefghijklmnopqrstuvwxyz
+
+Generic API Keys:
+not_a_real_key_1234567890abcdefghijklmnopqrstuvwxyz
+api_key: "not_a_real_key_1234567890abcdefghijklmnopqrstuvwxyz"
+API_KEY=not_a_real_key_1234567890abcdefghijklmnopqrstuvwxyz
+
+This file should trigger API_KEY and API_KEY_IN_CODE classifications.
+

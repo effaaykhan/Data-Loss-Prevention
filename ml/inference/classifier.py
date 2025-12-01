@@ -64,6 +64,51 @@ class DLPClassifier:
             'IP_ADDRESS': [
                 re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
             ],
+            # Indian identifiers
+            'AADHAAR': [
+                re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'),
+                re.compile(r'\b\d{12}\b'),
+            ],
+            'PAN_INDIA': [
+                re.compile(r'\b[A-Z]{5}\d{4}[A-Z]{1}\b'),
+            ],
+            'IFSC': [
+                re.compile(r'\b[A-Z]{4}0[A-Z0-9]{6}\b'),
+            ],
+            'INDIAN_BANK_ACCOUNT': [
+                re.compile(r'\b\d{9,18}\b'),
+            ],
+            'INDIAN_PHONE': [
+                re.compile(r'\b(\+91|91|0)?[6-9]\d{9}\b'),
+                re.compile(r'\b(\+91|91|0)?[1-9]\d{9}\b'),
+            ],
+            'UPI_ID': [
+                re.compile(r'\b[\w.-]+@(paytm|phonepe|ybl|okaxis|okhdfcbank|oksbi|okicici)\b'),
+            ],
+            'MICR': [
+                re.compile(r'\b\d{9}\b'),
+            ],
+            'INDIAN_DOB': [
+                re.compile(r'\b(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](19|20)\d{2}\b'),
+            ],
+            # Source code detection
+            'SOURCE_CODE': [
+                re.compile(r'\b(function|def|class|public|private|protected|static)\s+\w+'),
+                re.compile(r'\b(import|from|require|include|using|package)\s+'),
+                re.compile(r'\b(const|let|var|int|string|float|bool)\s+\w+\s*='),
+            ],
+            'API_KEY_IN_CODE': [
+                re.compile(r'AKIA[0-9A-Z]{16}'),
+                re.compile(r'ghp_[A-Za-z0-9]{36}'),
+                re.compile(r'api[_-]?key["\']?\s*[:=]\s*["\']?([a-zA-Z0-9_\-]{32,})["\']?', re.I),
+            ],
+            'DATABASE_CONNECTION': [
+                re.compile(r'jdbc:(mysql|postgresql|oracle|sqlserver)://'),
+                re.compile(r'mongodb://'),
+                re.compile(r'mongodb\+srv://'),
+                re.compile(r'redis://'),
+                re.compile(r'rediss://'),
+            ],
         }
 
     def classify(self, content: str) -> Dict[str, Any]:

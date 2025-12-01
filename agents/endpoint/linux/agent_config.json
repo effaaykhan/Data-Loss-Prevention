@@ -1,8 +1,9 @@
 {
   "server_url": "http://localhost:55000/api/v1",
-  "agent_id": "03c3e2c2-b9e7-4a3b-b140-ec52c8a5832f",
+  "agent_id": "860b39dd-8b47-4d5c-be53-08f8e501109c",
   "agent_name": "Linux-Agent",
   "heartbeat_interval": 30,
+  "policy_sync_interval": 60,
   "monitoring": {
     "file_system": true,
     "monitored_paths": [

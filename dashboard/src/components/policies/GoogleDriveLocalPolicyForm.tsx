@@ -268,26 +268,9 @@ export default function GoogleDriveLocalPolicyForm({ config, onChange }: GoogleD
         >
           <option value="log">Log Only</option>
           <option value="alert">Alert</option>
-          <option value="quarantine">Quarantine</option>
           <option value="block">Block</option>
         </select>
       </div>
-
-      {/* Quarantine Path (if action is quarantine) */}
-      {config.action === 'quarantine' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-200 mb-3">
-            Quarantine Path
-          </label>
-          <input
-            type="text"
-            value={config.quarantinePath || ''}
-            onChange={(e) => onChange({ ...config, quarantinePath: e.target.value })}
-            placeholder="C:\\Quarantine"
-            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-      )}
     </div>
   )
 }

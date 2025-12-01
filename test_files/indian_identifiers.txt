@@ -1,0 +1,29 @@
+Indian Identifiers Test File
+============================
+
+This file contains various Indian identifiers for testing DLP policies.
+
+Personal Identifiers:
+- Aadhaar Number: 1234 5678 9012
+- Aadhaar (no spaces): 123456789012
+- Aadhaar (with dashes): 1234-5678-9012
+- PAN Number: ABCDE1234F
+- Date of Birth: 15/08/1990
+- Date of Birth (dash): 15-08-1990
+
+Financial Identifiers:
+- IFSC Code: SBIN0001234
+- Bank Account Number: 123456789012
+- MICR Code: 123456789
+- UPI ID: user@paytm
+- UPI ID (PhonePe): merchant@phonepe
+- UPI ID (YBL): payment@ybl
+
+Contact Information:
+- Indian Phone (+91): +91-9876543210
+- Indian Phone (91): 91-9876543210
+- Indian Phone (local): 9876543210
+- Indian Phone (with 0): 09876543210
+
+This file should trigger multiple classification labels when processed by file system monitoring policies.
+

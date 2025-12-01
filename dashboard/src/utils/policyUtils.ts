@@ -407,5 +407,73 @@ export const predefinedPatterns = [
     name: 'Private Key', 
     example: '-----BEGIN PRIVATE KEY-----',
     regex: '-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----'
+  },
+  // Indian identifiers
+  { 
+    id: 'aadhaar', 
+    name: 'Aadhaar Number', 
+    example: '1234 5678 9012',
+    regex: '\\b\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}\\b'
+  },
+  { 
+    id: 'pan', 
+    name: 'PAN Number', 
+    example: 'ABCDE1234F',
+    regex: '\\b[A-Z]{5}\\d{4}[A-Z]{1}\\b'
+  },
+  { 
+    id: 'ifsc', 
+    name: 'IFSC Code', 
+    example: 'SBIN0001234',
+    regex: '\\b[A-Z]{4}0[A-Z0-9]{6}\\b'
+  },
+  { 
+    id: 'indian_bank_account', 
+    name: 'Indian Bank Account Number', 
+    example: '123456789012',
+    regex: '\\b\\d{9,18}\\b'
+  },
+  { 
+    id: 'indian_phone', 
+    name: 'Indian Phone Number', 
+    example: '+91-9876543210',
+    regex: '\\b(\\+91|91|0)?[6-9]\\d{9}\\b'
+  },
+  { 
+    id: 'upi_id', 
+    name: 'UPI ID', 
+    example: 'user@paytm',
+    regex: '\\b[\\w.-]+@(paytm|phonepe|ybl|okaxis|okhdfcbank|oksbi|okicici)\\b'
+  },
+  { 
+    id: 'micr', 
+    name: 'MICR Code', 
+    example: '123456789',
+    regex: '\\b\\d{9}\\b'
+  },
+  { 
+    id: 'indian_dob', 
+    name: 'Date of Birth (DD/MM/YYYY)', 
+    example: '15/08/1990',
+    regex: '\\b(0[1-9]|[12][0-9]|3[01])[/-](0[1-9]|1[0-2])[/-](19|20)\\d{2}\\b'
+  },
+  // Source code detection
+  { 
+    id: 'source_code_content', 
+    name: 'Source Code Content', 
+    example: 'function myFunction()',
+    regex: '\\b(function|def|class|public|private|protected|static|import|from|require|include|using|package|const|let|var|int|string|float|bool)\\s+\\w+'
+  },
+  { 
+    id: 'api_key_in_code', 
+    name: 'API Keys in Source Code', 
+    example: 'api_key: "sk_live_..."',
+    regex: '(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|api[_-]?key["\']?\\s*[:=]\\s*["\']?[a-zA-Z0-9_\\-]{32,}["\']?)'
+  },
+  { 
+    id: 'database_connection_string', 
+    name: 'Database Connection Strings', 
+    example: 'jdbc:mysql://localhost:3306/mydb',
+    regex: '(jdbc:(mysql|postgresql|oracle|sqlserver)://|mongodb://|mongodb\\+srv://|redis://|rediss://)'
   }
 ]

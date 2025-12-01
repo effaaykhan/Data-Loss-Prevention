@@ -13,9 +13,11 @@ export type PolicyType =
 
 export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical'
 export type ClipboardAction = 'alert' | 'log'
-export type FileSystemAction = 'alert' | 'quarantine' | 'block' | 'log'
+// NOTE: Quarantine is not yet fully implemented (no physical move), so it is hidden from UI actions for now.
+export type FileSystemAction = 'alert' | 'block' | 'log'
 export type USBDeviceAction = 'alert' | 'log' | 'block'
-export type USBTransferAction = 'block' | 'quarantine' | 'alert'
+// Same as FileSystemAction: quarantine is disabled until fully implemented.
+export type USBTransferAction = 'block' | 'alert'
 
 export interface ClipboardConfig {
   patterns: {

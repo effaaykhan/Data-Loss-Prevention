@@ -1,0 +1,21 @@
+Database Connection Strings Test File
+======================================
+
+This file contains various database connection strings for testing.
+
+JDBC Connections:
+jdbc:mysql://localhost:3306/mydb?user=root&password=secret
+jdbc:postgresql://localhost:5432/mydb
+jdbc:oracle:thin:@localhost:1521:orcl
+jdbc:sqlserver://localhost:1433;databaseName=mydb
+
+MongoDB Connections:
+mongodb://user:password@localhost:27017/mydb
+mongodb+srv://user:password@cluster.mongodb.net/mydb
+
+Redis Connections:
+redis://localhost:6379/0
+rediss://localhost:6380/0
+
+This file should trigger DATABASE_CONNECTION classification.
+

@@ -116,12 +116,16 @@ export default function SettingsPage() {
                 </div>
                 <input type="checkbox" className="w-12 h-6" defaultChecked />
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between opacity-60">
                 <div>
-                  <p className="text-white font-medium">Quarantine Files</p>
-                  <p className="text-sm text-gray-400">Move sensitive files to quarantine</p>
+                  <p className="text-white font-medium">
+                    Quarantine Files (coming soon)
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    Planned feature to move sensitive files to a secure quarantine location
+                  </p>
                 </div>
-                <input type="checkbox" className="w-12 h-6" defaultChecked />
+                <input type="checkbox" className="w-12 h-6" disabled />
               </div>
             </div>
           </div>

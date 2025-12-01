@@ -136,7 +136,42 @@ This document details all changes, fixes, and improvements made during testing a
 
 ---
 
-## 🎯 Latest Updates (January 2025)
+## 🎯 Latest Updates (December 2025)
+
+### 16. India-Specific Detection & Clipboard Policy Alignment
+
+#### Summary
+- **Goal:** Align clipboard and file transfer detection with India-first identifiers and ensure agents strictly follow database policies as the single source of truth.
+
+#### Highlights
+- **India-Specific Patterns (Agents):**
+  - Extended Windows agent content classifier to detect Aadhaar, PAN, IFSC, Indian bank accounts, Indian phone numbers, UPI IDs, MICR, and Indian-format dates of birth.
+  - Added source code and secret patterns: generic code tokens, AWS access keys, GitHub tokens, generic API keys, and database connection strings (JDBC, MongoDB, Redis).
+  - Reused the same classifier for clipboard, file events, and USB transfer events so all channels share a consistent label set.
+- **Clipboard Monitoring (Windows):**
+  - Switched clipboard capture to prefer `CF_UNICODETEXT` with fallback to `CF_TEXT`, fixing missing events from modern apps and standard `Ctrl+C` flows.
+  - Introduced agent-side policy awareness: clipboard events are only sent when content is classified as sensitive **and** at least one active clipboard policy’s configured patterns match the detected labels.
+  - Logged active clipboard/file/USB policy names on every policy bundle application to simplify debugging and manual validation.
+- **Linux Agent:**
+  - Confirmed filesystem monitoring pipeline and classification for sensitive content; added dedicated tests for Indian identifier and source code patterns.
+  - Clarified that Linux currently performs **logical** blocking only (events marked as blocked by policies) and does not delete/move files on disk.
+- **Quarantine Action Visibility:**
+  - Temporarily removed `quarantine` from user-selectable actions in the dashboard (`File System` and `USB Transfer` policies) and from shared policy types.
+  - Documented current limitation in `archive/FUTURE_TODO.md` – quarantine is tracked as future work and is not advertised as a working action in the UI.
+
+#### Files Touched (Highlights)
+- `agents/endpoint/windows/agent.py` – Unicode clipboard capture, India/source-code classifier, clipboard policy matching, USB transfer policy alignment.
+- `agents/endpoint/linux/agent.py` – Classification confirmation and tests for new patterns.
+- `dashboard/src/types/policy.ts` – Removed `quarantine` from active action enums; tightened policy types around `alert`, `log`, and `block`.
+- `dashboard/src/components/policies/FileSystemPolicyForm.tsx` – Removed quarantine option and quarantine path field.
+- `dashboard/src/components/policies/GoogleDriveLocalPolicyForm.tsx` – Removed quarantine option and quarantine path field.
+- `dashboard/src/mocks/mockPolicies.ts` – Updated mock actions to use `block`/`alert` only.
+- `dashboard/src/app/dashboard/settings/page.tsx` – Marked quarantine toggle as “coming soon”.
+- `archive/FUTURE_TODO.md` – Captured end-to-end quarantine implementation as a tracked future enhancement.
+
+---
+
+## 🎯 Previous Updates (January 2025)
 
 ### 15. Policy Management UI Revamp
 
