@@ -116,19 +116,6 @@ export default function LoginForm() {
           </button>
         </form>
 
-        {/* Default Credentials Info */}
-        <div className="mt-6 p-4 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 border-2 border-indigo-500/50 rounded-lg">
-          <h4 className="text-sm font-semibold text-indigo-300 mb-2 flex items-center gap-2">
-            <Shield className="w-4 h-4" />
-            Default Login
-          </h4>
-          <div className="text-sm text-gray-200 space-y-1.5">
-            <p className="font-mono"><span className="font-semibold text-white">Username:</span> admin</p>
-            <p className="font-mono"><span className="font-semibold text-white">Password:</span> admin</p>
-            <p className="text-xs text-gray-400 mt-2">Change password after first login</p>
-          </div>
-        </div>
-
         {/* Footer */}
         <div className="mt-6 text-center text-sm text-gray-300">
           <p>Secure access to your organization's DLP platform</p>

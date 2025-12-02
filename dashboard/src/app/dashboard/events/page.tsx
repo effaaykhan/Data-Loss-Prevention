@@ -277,7 +277,7 @@ function EventDetailModal({
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Severity and Action Badges */}
+          {/* Severity, Action, and Quarantine Badges */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium uppercase ${
               event.severity === 'critical' ? 'bg-red-900/30 border-red-500/50 text-red-400' :
@@ -297,11 +297,18 @@ function EventDetailModal({
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
               event.action_taken === 'blocked' ? 'bg-red-900/30 border-red-500/50 text-red-400' :
               event.action_taken === 'alerted' ? 'bg-yellow-900/30 border-yellow-500/50 text-yellow-400' :
+              event.action_taken === 'quarantined' || event.quarantined ? 'bg-blue-900/30 border-blue-500/50 text-blue-400' :
               'bg-gray-900/30 border-gray-500/50 text-gray-400'
             }`}>
-              {getActionIcon(event.action_taken || event.action || 'logged')}
-              {event.action_taken || event.action || 'Logged'}
+              {getActionIcon(event.action_taken || event.action || (event.quarantined ? 'quarantined' : 'logged'))}
+              {event.action_taken || (event.quarantined ? 'quarantined' : event.action) || 'Logged'}
             </span>
+            {event.quarantined && (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium bg-blue-900/40 border-blue-500/60 text-blue-300 uppercase">
+                <Download className="w-3 h-3" />
+                Quarantined
+              </span>
+            )}
           </div>
 
           {/* Clipboard Event - Show Clipboard Content */}
@@ -319,7 +326,7 @@ function EventDetailModal({
             </div>
           )}
 
-          {/* File Event - Show File Info and Content */}
+          {/* File Event - Show File Info, Quarantine Status, and Content */}
           {isFile && (
             <>
               {/* File Information */}
@@ -358,6 +365,19 @@ function EventDetailModal({
                         <p className="text-white font-mono text-xs break-all" title={event.file_hash}>
                           {event.file_hash.substring(0, 16)}...
                         </p>
+                      </div>
+                    )}
+                    {event.quarantined && event.quarantine_path && (
+                      <div className="col-span-3">
+                        <label className="text-xs text-blue-300 mb-1 block uppercase font-medium">Quarantine Path</label>
+                        <p className="text-blue-100 font-mono text-xs break-all">
+                          {event.quarantine_path}
+                        </p>
+                        {event.quarantine_timestamp && (
+                          <p className="text-blue-300 text-xs mt-1">
+                            Quarantined at: {formatDateTimeIST(event.quarantine_timestamp)}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

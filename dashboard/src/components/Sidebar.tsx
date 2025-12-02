@@ -24,7 +24,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="h-16 flex items-center px-6 border-b border-gray-800">
         <Shield className="h-8 w-8 text-primary-400" />
-        <span className="ml-3 text-lg font-semibold">CyberSentinel</span>
+        <span className="ml-3 text-lg font-semibold">Cybersentinel dlp</span>
       </div>
 
       {/* Navigation */}
@@ -51,7 +51,7 @@ export default function Sidebar() {
       {/* Footer */}
       <div className="px-6 py-4 border-t border-gray-800 text-xs text-gray-400">
         <div>Version 2.0.0</div>
-        <div className="mt-1">© 2025 CyberSentinel</div>
+        <div className="mt-1">© 2025 Cybersentinel dlp</div>
       </div>
     </aside>
   )
