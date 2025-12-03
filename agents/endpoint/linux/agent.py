@@ -253,7 +253,8 @@ class DLPAgent:
                 "hostname": socket.gethostname(),
                 "os": "linux",
                 "os_version": platform.platform(),
-                "ip_address": socket.gethostbyname(socket.gethostname()),
+                # Use a real interface IP instead of hostname resolution to avoid 127.0.x/WSL artifacts
+                "ip_address": self._get_real_ip_address(),
                 "version": "1.0.0",
                 "capabilities": self.policy_capabilities
             }
@@ -577,7 +578,8 @@ class DLPAgent:
             # Send timestamp in ISO format for server validation
             data = {
                 "timestamp": datetime.utcnow().isoformat() + "Z",
-                "ip_address": socket.gethostbyname(socket.gethostname())
+                # Keep heartbeat IP aligned with registration IP
+                "ip_address": self._get_real_ip_address(),
             }
 
             response = requests.put(
@@ -604,6 +606,26 @@ class DLPAgent:
         if self.last_policy_sync_error:
             data["policy_sync_error"] = self.last_policy_sync_error
         return data
+
+    def _get_real_ip_address(self) -> str:
+        """Get the primary IPv4 address of the Linux machine.
+
+        Prefer a real interface address (not 127.0.0.1 or a container/WSL bridge) by
+        opening a UDP socket toward a well-known external IP. No packets are actually
+        sent, but the OS chooses the outbound interface and we read its IP.
+        """
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                # Use a public resolver IP to determine the primary interface.
+                # The remote host does not need to be reachable for getsockname() to work.
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except Exception:
+            # Fallback to hostname resolution, and finally loopback as last resort.
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "127.0.0.1"
 
 
 def main():

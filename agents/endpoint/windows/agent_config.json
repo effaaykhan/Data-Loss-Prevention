@@ -32,6 +32,10 @@
       "poll_interval_seconds": 5
     }
   },
+  "quarantine": {
+    "enabled": true,
+    "folder": "C:\\\\Quarantine"
+  },
   "classification": {
     "enabled": true,
     "max_file_size_mb": 10

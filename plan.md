@@ -220,7 +220,7 @@ These steps apply after both agent test passes.
 
 ## Known Limitations
 
-1. **Quarantine Implementation**: Currently tracks quarantine action but may not physically move files (per code comment in `action_executor.py:232`)
+1. **Quarantine Implementation**: End-to-end Windows quarantine validation is planned but deferred; see future work section below.
 2. **Agent Sync**: Policy bundle sync happens every 60 seconds, not instant
 3. **Google Drive**: Requires OAuth setup and active Google account
 
@@ -229,5 +229,16 @@ These steps apply after both agent test passes.
 ## Priority Testing Order
 
 1. **High Priority**: Policy creation, basic detection, alert/log actions
-2. **Medium Priority**: Quarantine verification, file system monitoring, USB monitoring
+2. **Medium Priority**: File system monitoring, USB monitoring, basic quarantine spot-checks
 3. **Low Priority**: Google Drive integration, performance testing, edge cases
+
+---
+
+## Future Work: Windows Quarantine Deep-Dive (Deferred)
+
+- [ ] Re-run focused Windows USB transfer quarantine tests end-to-end:
+  - Configure a USB transfer policy with `action: quarantine` and verify files are moved into the global `C:\Quarantine` folder.
+  - Confirm events include `quarantined`, `quarantine_path`, `quarantine_timestamp`, and `quarantine_reason`.
+- [ ] Expand to file system policies using the same quarantine helpers for non-USB scenarios.
+- [ ] Add or refine automated tests for quarantine metadata persistence and UI presentation.
+- [ ] Document final behavior and any operational guidance (cleanup strategy for `C:\Quarantine`).

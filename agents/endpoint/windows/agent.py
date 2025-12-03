@@ -15,6 +15,7 @@ import threading
 import uuid
 import signal
 import atexit
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -69,6 +70,12 @@ class AgentConfig:
                     "block_removable_drives": True,
                     "poll_interval_seconds": 5
                 }
+            },
+            "quarantine": {
+                # Global quarantine toggle for this agent
+                "enabled": True,
+                # Default quarantine folder on Windows endpoints
+                "folder": "C:\\\\Quarantine"
             },
             "classification": {
                 "enabled": True,
@@ -191,6 +198,26 @@ class DLPAgent:
         self.recent_events = {}  # {(file_path, event_type): timestamp}
         self.dedup_window_seconds = 2  # Ignore duplicate events within 2 seconds
         self._clipboard_miss_log_ts = 0.0
+
+        # Quarantine configuration
+        quarantine_cfg = self.config.get("quarantine", {}) or {}
+        self.quarantine_enabled: bool = bool(quarantine_cfg.get("enabled", True))
+        self.quarantine_folder: Optional[str] = quarantine_cfg.get("folder") or "C:\\Quarantine"
+
+        # Normalize quarantine folder path and ensure it exists
+        if self.quarantine_enabled and self.quarantine_folder:
+            try:
+                # Expand any env vars like %USERNAME% and normalize slashes
+                self.quarantine_folder = self._normalize_filesystem_path(self.quarantine_folder)
+                os.makedirs(self.quarantine_folder, exist_ok=True)
+                logger.info(
+                    "Quarantine folder configured",
+                    extra={"folder": self.quarantine_folder},
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize quarantine folder '{self.quarantine_folder}': {e}")
+                self.quarantine_enabled = False
+                self.quarantine_folder = None
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -468,7 +495,22 @@ class DLPAgent:
         if self.policy_file_paths:
             return self.policy_file_paths
         monitoring_cfg = self.config.get("monitoring", {})
-        return monitoring_cfg.get("monitored_paths", [])
+        paths = monitoring_cfg.get("monitored_paths", [])
+        # Never monitor the quarantine folder itself to avoid re-triggering policies
+        if self.quarantine_folder:
+            normalized_quarantine = self._normalize_filesystem_path(self.quarantine_folder).lower()
+            filtered: List[str] = []
+            for p in paths:
+                np = self._normalize_filesystem_path(p).lower()
+                if np == normalized_quarantine or np.startswith(normalized_quarantine + "\\"):
+                    logger.info(
+                        "Excluding quarantine folder from monitored_paths",
+                        extra={"path": p, "normalized": np},
+                    )
+                    continue
+                filtered.append(p)
+            return filtered
+        return paths
 
     def _restart_file_monitoring(self):
         """Restart file observers with new configuration."""
@@ -566,13 +608,13 @@ class DLPAgent:
 
                     if text and text != self.last_clipboard:
                         self.last_clipboard = text
-                         logger.info(
-                             "Clipboard text captured",
-                             extra={
-                                 "format": format_detected,
-                                 "length": len(text),
-                             },
-                         )
+                        logger.info(
+                            "Clipboard text captured",
+                            extra={
+                                "format": format_detected,
+                                "length": len(text),
+                            },
+                        )
                         self.handle_clipboard_event(text)
                     elif not format_detected:
                         now = time.time()
@@ -1049,10 +1091,21 @@ class DLPAgent:
 
                 policy_action = policy.get("config", {}).get("action", "block").lower()
                 blocked = False
-                if policy_action == "block":
+                quarantine_path: Optional[str] = None
+
+                if policy_action == "quarantine":
+                    # Move the copied file into the quarantine folder instead of deleting it
+                    quarantine_path = self.quarantine_file(file_path)
+                    blocked = bool(quarantine_path)
+                    if not blocked:
+                        logger.warning(
+                            "Quarantine requested but failed; file may remain on removable drive",
+                            extra={"dest_file": file_path},
+                        )
+                elif policy_action == "block":
                     blocked = self.block_file_transfer(file_path)
 
-                # Send blocked transfer event
+                # Send transfer event (blocked or attempted), including quarantine metadata if applicable
                 self._send_blocked_transfer_event(
                     source_file,
                     file_path,
@@ -1061,6 +1114,7 @@ class DLPAgent:
                     blocked,
                     policy=policy,
                     action=policy_action,
+                    quarantine_path=quarantine_path,
                 )
             else:
                 logger.info(f"File on removable drive not found in monitored directories: {file_path} (Name: {file_name}, Size: {file_size})")
@@ -1172,6 +1226,7 @@ class DLPAgent:
         blocked: bool,
         policy: Optional[Dict[str, Any]] = None,
         action: str = "block",
+        quarantine_path: Optional[str] = None,
     ):
         """
         Send event for blocked transfer
@@ -1188,14 +1243,22 @@ class DLPAgent:
             content = self._read_file_content(source_file, max_bytes=100000)
             classification = self._classify_content(content)
             
-            # Determine severity (always critical for blocked transfers)
+            # Determine severity (always critical for blocked/quarantined transfers)
             severity = "critical" if blocked else "high"
             
-            description = (
-                f"File transfer blocked: {Path(source_file).name} -> {Path(dest_file).name}"
-                if blocked else
-                f"File transfer detected: {Path(source_file).name} -> {Path(dest_file).name}"
-            )
+            is_quarantine = action == "quarantine" and quarantine_path is not None
+
+            if is_quarantine and blocked:
+                description = (
+                    f"File transfer quarantined: {Path(source_file).name} "
+                    f"-> {Path(dest_file).name} (moved to quarantine)"
+                )
+            else:
+                description = (
+                    f"File transfer blocked: {Path(source_file).name} -> {Path(dest_file).name}"
+                    if blocked
+                    else f"File transfer detected: {Path(source_file).name} -> {Path(dest_file).name}"
+                )
 
             event_data = {
                 "event_id": str(uuid.uuid4()),
@@ -1206,7 +1269,7 @@ class DLPAgent:
                 "user_email": f"{os.getlogin()}@{socket.gethostname()}",
                 "description": description,
                 "severity": severity,
-                "action": "blocked" if blocked else "logged",
+                "action": "quarantined" if is_quarantine and blocked else ("blocked" if blocked else "logged"),
                 "file_path": source_file,  # Source file path
                 "file_name": Path(source_file).name,
                 "file_size": file_size,
@@ -1223,6 +1286,13 @@ class DLPAgent:
                 "policy_name": policy.get("name") if policy else None,
                 "policy_action": action,
             }
+
+            # Quarantine metadata (for Windows agent-handled quarantines)
+            if is_quarantine:
+                event_data["quarantined"] = blocked
+                event_data["quarantine_path"] = quarantine_path
+                event_data["quarantine_timestamp"] = datetime.utcnow().isoformat()
+                event_data["quarantine_reason"] = "usb_transfer_policy"
 
             if self.active_policy_version:
                 event_data["policy_version"] = self.active_policy_version
@@ -1411,6 +1481,50 @@ class DLPAgent:
             normalized.append({**policy, "config": cfg})
         return normalized
 
+    def _get_quarantine_destination(self, original_path: str) -> str:
+        """
+        Compute a destination path inside the quarantine folder for a given file.
+
+        Uses the original filename plus a short UUID suffix to avoid collisions:
+        e.g. C:\\Quarantine\\secret.txt -> C:\\Quarantine\\secret_<uuid>.txt
+        """
+        if not self.quarantine_folder:
+            raise ValueError("Quarantine folder is not configured")
+
+        base_name = os.path.basename(original_path) or "quarantined_file"
+        name, ext = os.path.splitext(base_name)
+        suffix = uuid.uuid4().hex[:8]
+        safe_name = f"{name}_{suffix}{ext}"
+        return os.path.join(self.quarantine_folder, safe_name)
+
+    def quarantine_file(self, source_path: str) -> Optional[str]:
+        """
+        Move a file into the agent's quarantine folder.
+
+        Returns the final quarantine path on success, or None on failure.
+        """
+        if not self.quarantine_enabled or not self.quarantine_folder:
+            logger.warning("Quarantine requested but disabled or not configured")
+            return None
+
+        try:
+            if not os.path.exists(source_path):
+                logger.warning(f"Cannot quarantine missing file: {source_path}")
+                return None
+
+            dest_path = self._get_quarantine_destination(source_path)
+            # Ensure quarantine folder still exists
+            os.makedirs(self.quarantine_folder, exist_ok=True)
+            shutil.move(source_path, dest_path)
+            logger.warning(
+                "File quarantined",
+                extra={"source": source_path, "destination": dest_path},
+            )
+            return dest_path
+        except Exception as e:
+            logger.error(f"Failed to quarantine file '{source_path}': {e}", exc_info=True)
+            return None
+
     def _max_severity(self, severities: List[Optional[str]]) -> str:
         """Return highest severity value from provided list."""
         order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -1518,33 +1632,24 @@ class DLPAgent:
             logger.error(f"Heartbeat failed: {e}", exc_info=True)
 
     def _get_real_ip_address(self):
-        """Get the real IP address of the Windows machine instead of hostname resolution.
+        """Get the primary IPv4 address of the Windows machine.
 
-        This mirrors the coworker change on main that avoids incorrect 127.x/WSL hostnames
-        by opening a UDP socket toward the manager host and reading the local bind address.
+        Prefer a real interface address (not 127.0.0.1 or a container bridge IP) by
+        opening a UDP socket toward a well-known external IP. No packets are actually
+        sent, but the OS chooses the outbound interface and we read its IP.
         """
         try:
-            # Extract server host from server_url
-            server_url = self.config.get("server_url", "http://localhost:55000/api/v1")
-            if server_url.startswith("http://"):
-                host_port = server_url[7:].split("/")[0]
-            elif server_url.startswith("https://"):
-                host_port = server_url[8:].split("/")[0]
-            else:
-                host_port = server_url.split("/")[0]
-
-            # Split host and port if present
-            host = host_port.split(":")[0] if ":" in host_port else host_port
-
-            # Create a socket to find the IP address used to reach the server
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                # Connect to the DLP server to determine the real IP
-                s.connect((host, 80))
-                ip = s.getsockname()[0]
-                return ip
+                # Use a public resolver IP to determine the primary interface.
+                # The remote host does not need to be reachable for getsockname() to work.
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
         except Exception:
-            # Fallback to hostname resolution
-            return socket.gethostbyname(socket.gethostname())
+            # Fallback to hostname resolution, and finally loopback as last resort.
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "127.0.0.1"
 
 
 def main():

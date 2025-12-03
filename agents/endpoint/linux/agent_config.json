@@ -1,6 +1,6 @@
 {
   "server_url": "http://localhost:55000/api/v1",
-  "agent_id": "860b39dd-8b47-4d5c-be53-08f8e501109c",
+  "agent_id": "eaaf1759-23f0-476e-a5cf-a41debb23091",
   "agent_name": "Linux-Agent",
   "heartbeat_interval": 30,
   "policy_sync_interval": 60,
