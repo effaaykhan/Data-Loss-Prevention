@@ -73,28 +73,23 @@ hostname -I | awk '{print $1}'
 
 **Note:** For WSL2, the IP address may change on restart. Use the IP shown by the command above.
 
-#### Update Docker Compose Configuration
+#### Update Environment for Containers (avoid host-IP drift)
 
-Edit `docker-compose.yml` and ensure the following environment variables are set:
+Use `.env` to drive both manager and dashboard. For local/WSL installs keep the dashboard hitting the API via `localhost` (inside the docker network) so bundle calls don’t break when the host IP changes:
 
-```yaml
-manager:
-  environment:
-    - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://YOUR_IP:3000
-    - ALLOWED_HOSTS=localhost,127.0.0.1,YOUR_IP
-    - PORT=55000
-    - OPENSEARCH_USE_SSL=false
-
-dashboard:
-  build:
-    args:
-      - VITE_API_URL=http://YOUR_IP:55000/api/v1
-      - VITE_WS_URL=ws://YOUR_IP:55000/ws
-      - VITE_APP_NAME=CyberSentinel DLP
-      - VITE_APP_VERSION=2.0.0
+```
+# .env
+CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+VITE_API_URL=http://localhost:55000/api/v1
+VITE_WS_URL=ws://localhost:55000/ws
 ```
 
-**Replace `YOUR_IP` with your actual server IP address.**
+If you need remote browser access, add your host IP to `CORS_ORIGINS`, but leave `VITE_API_URL`/`VITE_WS_URL` on `http://localhost:55000` so the container build still works everywhere. After changing these, rebuild the dashboard:
+
+```bash
+docker compose build --no-cache dashboard
+docker compose up -d dashboard
+```
 
 ### Step 3: Initialize Database
 

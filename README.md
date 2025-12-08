@@ -151,8 +151,12 @@ The easiest way to deploy CyberSentinel DLP is using Docker Compose.
 git clone https://github.com/effaaykhan/Data-Loss-Prevention.git
 cd Data-Loss-Prevention
 
-# 2. Configure environment
+# 2. Configure environment (use localhost for dashboard → API)
 cp .env.example .env
+# Recommended for local/WSL:
+#   CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+#   VITE_API_URL=http://localhost:55000/api/v1
+#   VITE_WS_URL=ws://localhost:55000/ws
 nano .env  # Edit database passwords, JWT secret, etc.
 
 # 3. Start all services
