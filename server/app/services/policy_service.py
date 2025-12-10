@@ -86,6 +86,7 @@ class PolicyService:
         type: Optional[str] = None,
         severity: Optional[str] = None,
         config: Optional[dict] = None,
+        agent_ids: Optional[List[str]] = None,
     ) -> Policy:
         """
         Create a new DLP policy
@@ -127,6 +128,7 @@ class PolicyService:
             type=type,
             severity=severity,
             config=config,
+            agent_ids=agent_ids or [],
         )
 
         self.db.add(policy)
@@ -148,6 +150,7 @@ class PolicyService:
         type: Optional[str] = None,
         severity: Optional[str] = None,
         config: Optional[dict] = None,
+        agent_ids: Optional[List[str]] = None,
     ) -> Optional[Policy]:
         """
         Update policy details
@@ -207,6 +210,9 @@ class PolicyService:
 
         if config is not None:
             policy.config = config
+
+        if agent_ids is not None:
+            policy.agent_ids = agent_ids
 
         policy.updated_at = datetime.utcnow()
 

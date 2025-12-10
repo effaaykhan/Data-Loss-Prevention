@@ -26,6 +26,8 @@ class Policy(Base):
     conditions = Column(JSON, nullable=False)
     actions = Column(JSON, nullable=False)
     compliance_tags = Column(JSON, nullable=True)
+    # Agent scoping: when null/empty, applies to all agents; otherwise restricted
+    agent_ids = Column(JSON, nullable=True)
     created_by = Column(UUID(as_uuid=True), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

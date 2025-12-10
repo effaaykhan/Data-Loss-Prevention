@@ -13,6 +13,7 @@ def make_policy(
     severity: str = "medium",
     config: dict | None = None,
     actions: dict | None = None,
+    agent_ids: list[str] | None = None,
 ):
     return types.SimpleNamespace(
         id=policy_id,
@@ -26,6 +27,7 @@ def make_policy(
         compliance_tags=[],
         updated_at=None,
         created_at=None,
+        agent_ids=agent_ids or [],
     )
 
 
@@ -96,5 +98,66 @@ def test_version_changes_when_policy_changes():
     bundle_v2 = transformer.build_bundle([policy], platform="windows")
 
     assert bundle_v1["version"] != bundle_v2["version"]
+
+
+def test_agent_scoped_policy_included_only_for_matching_agent():
+    transformer = AgentPolicyTransformer()
+    scoped_policy = make_policy(
+        policy_id="p-agent",
+        name="Agent Scoped Policy",
+        policy_type="file_system_monitoring",
+        config={"monitoredPaths": ["C:/Docs"], "action": "alert"},
+        agent_ids=["agent-123"],
+    )
+    global_policy = make_policy(
+        policy_id="p-global",
+        name="Global Policy",
+        policy_type="file_system_monitoring",
+        config={"monitoredPaths": ["C:/Global"], "action": "alert"},
+    )
+
+    bundle_for_agent = transformer.build_bundle([scoped_policy, global_policy], platform="windows", agent_id="agent-123")
+    bundle_other_agent = transformer.build_bundle([scoped_policy, global_policy], platform="windows", agent_id="agent-999")
+
+    included_paths = [p["config"]["monitoredPaths"][0] for p in bundle_for_agent["policies"]["file_system_monitoring"]]
+    assert "C:/Docs" in included_paths
+    assert "C:/Global" in included_paths
+
+    other_paths = [p["config"]["monitoredPaths"][0] for p in bundle_other_agent["policies"]["file_system_monitoring"]]
+    assert "C:/Docs" not in other_paths
+    assert "C:/Global" in other_paths
+
+
+def test_version_changes_when_agent_scope_changes():
+    transformer = AgentPolicyTransformer()
+    policy = make_policy(
+        policy_id="p-scope",
+        name="Scoped Policy",
+        policy_type="file_system_monitoring",
+        config={"monitoredPaths": ["C:/Docs"], "action": "alert"},
+        agent_ids=["agent-1"],
+    )
+
+    bundle_v1 = transformer.build_bundle([policy], platform="windows", agent_id="agent-1")
+    policy.agent_ids.append("agent-2")
+    bundle_v2 = transformer.build_bundle([policy], platform="windows", agent_id="agent-1")
+
+    assert bundle_v1["version"] != bundle_v2["version"]
+
+
+def test_bundle_preserves_quarantine_action_and_path():
+    transformer = AgentPolicyTransformer()
+    policy = make_policy(
+        policy_id="p-files",
+        name="Files Quarantine Policy",
+        policy_type="file_system_monitoring",
+        config={"monitoredPaths": ["/opt/data"], "action": "quarantine", "quarantinePath": "/quarantine"},
+    )
+
+    bundle = transformer.build_bundle([policy], platform="linux")
+
+    serialized = bundle["policies"]["file_system_monitoring"][0]["config"]
+    assert serialized["action"] == "quarantine"
+    assert serialized["quarantinePath"] == "/quarantine"
 
 

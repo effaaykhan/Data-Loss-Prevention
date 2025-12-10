@@ -40,6 +40,7 @@ class AgentPolicyTransformer:
         policies: Iterable[Policy],
         platform: str,
         capabilities: Optional[Dict[str, bool]] = None,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         platform_key = (platform or "windows").lower()
         capability_flags = {k: bool(v) for k, v in (capabilities or {}).items()}
@@ -47,7 +48,7 @@ class AgentPolicyTransformer:
         filtered: List[Policy] = [
             policy
             for policy in policies
-            if self._supports_policy(policy, platform_key, capability_flags)
+            if self._supports_policy(policy, platform_key, capability_flags, agent_id)
         ]
 
         grouped = self._group_policies(filtered)
@@ -65,6 +66,7 @@ class AgentPolicyTransformer:
         policy: Policy,
         platform: str,
         capabilities: Dict[str, bool],
+        agent_id: Optional[str],
     ) -> bool:
         if not policy.enabled:
             return False
@@ -72,6 +74,12 @@ class AgentPolicyTransformer:
         policy_type = (policy.type or "").lower()
         if not policy_type:
             return False
+
+        # Agent scoping: apply when agent_ids is defined and non-empty
+        scoped_agents = policy.agent_ids or []
+        if scoped_agents:
+            if not agent_id or str(agent_id) not in set(map(str, scoped_agents)):
+                return False
 
         supported_platforms = POLICY_PLATFORM_SUPPORT.get(policy_type, [])
         if supported_platforms and platform not in supported_platforms:
@@ -116,6 +124,7 @@ class AgentPolicyTransformer:
             hasher.update(updated_at.isoformat().encode("utf-8"))
             hasher.update(json.dumps(policy.config or {}, sort_keys=True).encode("utf-8"))
             hasher.update(json.dumps(policy.actions or {}, sort_keys=True).encode("utf-8"))
+            hasher.update(json.dumps(policy.agent_ids or [], sort_keys=True).encode("utf-8"))
         return hasher.hexdigest()
 
 

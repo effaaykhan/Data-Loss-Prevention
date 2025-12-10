@@ -1,3 +1,14 @@
+# Current Task Plan - Installer Automation (Windows & Linux)
+
+- [ ] Define installer requirements (auto-clone/download, config handling, service management per OS)
+- [ ] Draft Windows installer approach (PowerShell): clone/sparse-checkout windows agent, install deps/venv or bundled exe, configure `agent_config.json`, register as service (NSSM or native), start and verify
+- [ ] Draft Linux installer approach (bash): clone/sparse-checkout linux agent, install deps/venv, set config, create systemd service, start and verify
+- [ ] Implement scripts and doc updates as needed
+- [ ] Smoke test both flows (local paths/ports)
+- [ ] Summarize changes and remaining risks
+
+---
+
 # Comprehensive Manual Testing Plan - CyberSentinel DLP
 
 ## Testing Overview
@@ -220,7 +231,7 @@ These steps apply after both agent test passes.
 
 ## Known Limitations
 
-1. **Quarantine Implementation**: End-to-end Windows quarantine validation is planned but deferred; see future work section below.
+1. **Quarantine Validation**: Quarantine is implemented (Windows USB/files, Linux files) but still needs fresh end-to-end manual verification on real endpoints, especially USB paths.
 2. **Agent Sync**: Policy bundle sync happens every 60 seconds, not instant
 3. **Google Drive**: Requires OAuth setup and active Google account
 
@@ -234,11 +245,11 @@ These steps apply after both agent test passes.
 
 ---
 
-## Future Work: Windows Quarantine Deep-Dive (Deferred)
+## Future Work: Quarantine Validation
 
-- [ ] Re-run focused Windows USB transfer quarantine tests end-to-end:
-  - Configure a USB transfer policy with `action: quarantine` and verify files are moved into the global `C:\Quarantine` folder.
-  - Confirm events include `quarantined`, `quarantine_path`, `quarantine_timestamp`, and `quarantine_reason`.
-- [ ] Expand to file system policies using the same quarantine helpers for non-USB scenarios.
-- [ ] Add or refine automated tests for quarantine metadata persistence and UI presentation.
-- [ ] Document final behavior and any operational guidance (cleanup strategy for `C:\Quarantine`).
+- [ ] Re-run focused Windows USB/file-system quarantine tests end-to-end:
+  - Configure policies with `action: quarantine` and verify files move into `C:\Quarantine`.
+  - Confirm events carry `quarantined`, `quarantine_path`, `quarantine_timestamp`, `quarantine_reason`.
+- [ ] Validate Linux quarantine enforcement for file policies (and USB if available on the test host) with a dedicated quarantine folder excluded from monitoring.
+- [ ] Add or refine automated/regression tests for quarantine metadata persistence and UI presentation.
+- [ ] Document operational guidance (cleanup strategy for quarantine folders on Windows/Linux).

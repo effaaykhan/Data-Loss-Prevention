@@ -430,7 +430,7 @@ async def sync_agent_policies(
     except RuntimeError:
         cache_service = None
 
-    cache_key = f"agent-policy-bundle:{platform}:{capability_key}"
+    cache_key = f"agent-policy-bundle:{agent_id}:{platform}:{capability_key}"
     bundle: Optional[Dict[str, Any]] = None
 
     if cache_service:
@@ -440,7 +440,12 @@ async def sync_agent_policies(
         policy_service = PolicyService(db)
         enabled_policies = await policy_service.get_enabled_policies()
         transformer = _get_agent_policy_transformer()
-        bundle = transformer.build_bundle(enabled_policies, platform, capabilities)
+        bundle = transformer.build_bundle(
+            enabled_policies,
+            platform,
+            capabilities,
+            agent_id=agent_id,
+        )
         if cache_service:
             await cache_service.set(cache_key, bundle, expire=30)
 

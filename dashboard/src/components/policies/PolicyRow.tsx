@@ -74,6 +74,11 @@ export default function PolicyRow({
             <span className="badge badge-info">
               {getPolicyTypeLabel(policy.type)}
             </span>
+            <span className="badge bg-gray-100 text-gray-700">
+              {policy.agentIds && policy.agentIds.length > 0
+                ? `Scoped (${policy.agentIds.length})`
+                : 'All agents'}
+            </span>
             {policy.enabled ? (
               <span className="badge badge-success">Active</span>
             ) : (

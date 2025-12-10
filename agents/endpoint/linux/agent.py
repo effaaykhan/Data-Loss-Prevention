@@ -15,6 +15,7 @@ import threading
 import uuid
 import signal
 import atexit
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -76,6 +77,12 @@ class AgentConfig:
                     "/home/*/snap"
                 ],
                 "file_extensions": [".pdf", ".docx", ".xlsx", ".txt", ".csv", ".json", ".xml", ".sql", ".conf"]
+            },
+            "quarantine": {
+                # Global quarantine toggle for this agent
+                "enabled": True,
+                # Default quarantine folder on Linux endpoints
+                "folder": "/home/vansh/quarantine"
             },
             "classification": {
                 "enabled": True,
@@ -175,6 +182,27 @@ class DLPAgent:
         self.last_policy_sync_at: Optional[str] = None
         self.last_policy_sync_status: str = "never"
         self.last_policy_sync_error: Optional[str] = None
+        self.file_policies: List[Dict[str, Any]] = []
+
+        quarantine_cfg = self.config.get("quarantine", {})
+        self.quarantine_enabled: bool = quarantine_cfg.get("enabled", False)
+        self.quarantine_folder: Optional[str] = quarantine_cfg.get("folder")
+        if self.quarantine_enabled and self.quarantine_folder:
+            try:
+                os.makedirs(self.quarantine_folder, exist_ok=True)
+            except Exception as exc:
+                # Do not disable quarantine; policies may supply an alternate folder.
+                logger.warning(f"Could not create quarantine folder {self.quarantine_folder}: {exc}")
+        # Ensure quarantine folder is excluded from monitoring to prevent loops
+        if self.quarantine_folder:
+            monitoring_cfg = self.config.get("monitoring", {}) or {}
+            exclude_paths = monitoring_cfg.get("exclude_paths", []) or []
+            if self.quarantine_folder not in exclude_paths:
+                exclude_paths.append(self.quarantine_folder)
+                monitoring_cfg["exclude_paths"] = exclude_paths
+                # Persist back onto config dictionary safely
+                if isinstance(self.config, AgentConfig) and isinstance(self.config.config, dict):
+                    self.config.config["monitoring"] = monitoring_cfg
         
         # Deduplication: Track recent events to prevent duplicates
         self.recent_events = {}  # {(file_path, event_type): timestamp}
@@ -339,6 +367,9 @@ class DLPAgent:
         file_policies = policies.get("file_system_monitoring", [])
         usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
 
+        # Persist file policies for action handling
+        self.file_policies = file_policies
+
         new_paths: List[str] = []
         for policy in file_policies + usb_transfer_policies:
             config = policy.get("config", {})
@@ -404,10 +435,70 @@ class DLPAgent:
             if self.observers:
                 self.stop_file_monitoring()
 
+    def _is_in_quarantine(self, file_path: str) -> bool:
+        """Check if the file resides in the quarantine folder to avoid loops."""
+        if not self.quarantine_enabled or not self.quarantine_folder:
+            return False
+        try:
+            return os.path.commonpath([os.path.abspath(file_path), os.path.abspath(self.quarantine_folder)]) == os.path.abspath(self.quarantine_folder)
+        except Exception:
+            return False
+
+    def _get_quarantine_destination(self, source_path: str) -> str:
+        """Compute destination path for a quarantined file."""
+        basename = Path(source_path).name
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+        unique_name = f"{timestamp}_{uuid.uuid4().hex[:8]}_{basename}"
+        return str(Path(self.quarantine_folder) / unique_name)
+
+    def quarantine_file(self, source_path: str, override_folder: Optional[str] = None) -> Optional[str]:
+        """Move a file into the quarantine folder. Honors a policy-specified folder when provided."""
+        target_folder = override_folder or self.quarantine_folder
+        if not target_folder:
+            logger.warning(f"No quarantine folder configured; cannot quarantine {source_path}")
+            return None
+        if not os.path.exists(source_path):
+            logger.debug(f"File to quarantine does not exist: {source_path}")
+            return None
+
+        try:
+            os.makedirs(target_folder, exist_ok=True)
+            dest_path = str(Path(target_folder) / Path(self._get_quarantine_destination(source_path)).name)
+            shutil.move(source_path, dest_path)
+            logger.warning(f"File quarantined: {source_path} -> {dest_path}")
+            return dest_path
+        except Exception as exc:
+            logger.error(f"Failed to quarantine file {source_path}: {exc}", exc_info=True)
+            return None
+
+    def block_file_transfer(self, file_path: str) -> bool:
+        """Delete a file as a blocking action."""
+        try:
+            os.remove(file_path)
+            logger.warning(f"Blocked and deleted file: {file_path}")
+            return True
+        except Exception as exc:
+            logger.error(f"Failed to delete file during block: {exc}", exc_info=True)
+            return False
+
+    def _match_file_policy(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Find the first file system policy whose monitoredPaths include the file."""
+        for policy in self.file_policies:
+            config = policy.get("config", {})
+            monitored_paths = config.get("monitoredPaths", [])
+            for path in monitored_paths:
+                expanded = self._expand_path(path)
+                if file_path.startswith(expanded):
+                    return policy
+        return None
+
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
             if not self.allow_events or not self.has_file_policies:
+                return
+            if self._is_in_quarantine(file_path):
+                logger.debug(f"Skipping event inside quarantine folder: {file_path}")
                 return
             # Deduplication: Check if we recently sent an event for this file/type
             dedup_key = (file_path, event_type)
@@ -436,6 +527,26 @@ class DLPAgent:
             # Classify content
             classification = self._classify_content(content)
 
+            # Determine matching policy and action
+            matched_policy = self._match_file_policy(file_path)
+            policy_config = matched_policy.get("config", {}) if matched_policy else {}
+            policy_action = policy_config.get("action", "log").lower()
+            event_action = "logged"
+            quarantine_path: Optional[str] = None
+            quarantine_timestamp: Optional[str] = None
+
+            if policy_action == "block":
+                if self.block_file_transfer(file_path):
+                    event_action = "blocked"
+            elif policy_action == "quarantine":
+                target_folder = policy_config.get("quarantinePath") or self.quarantine_folder
+                quarantine_path = self.quarantine_file(file_path, target_folder)
+                if quarantine_path:
+                    event_action = "quarantined"
+                    quarantine_timestamp = datetime.utcnow().isoformat() + "Z"
+            elif policy_action == "alert":
+                event_action = "alert"
+
             # Get current user
             import pwd
             current_user = pwd.getpwuid(os.getuid()).pw_name
@@ -451,7 +562,7 @@ class DLPAgent:
                 "username": current_user,
                 "description": f"{event_type}: {Path(file_path).name}",
                 "severity": classification.get("severity", "low"),
-                "action": "logged",
+                "action": event_action,
                 "file_path": file_path,
                 "file_name": Path(file_path).name,
                 "file_size": file_size,
@@ -461,6 +572,13 @@ class DLPAgent:
                 "content": content_snippet,
                 "timestamp": datetime.utcnow().isoformat()
             }
+
+            if matched_policy and matched_policy.get("id"):
+                event_data["policy_id"] = matched_policy.get("id")
+            if quarantine_path:
+                event_data["quarantined"] = True
+                event_data["quarantine_path"] = quarantine_path
+                event_data["quarantine_timestamp"] = quarantine_timestamp
 
             if self.active_policy_version:
                 event_data["policy_version"] = self.active_policy_version

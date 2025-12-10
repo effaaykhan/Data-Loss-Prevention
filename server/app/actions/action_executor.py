@@ -210,29 +210,48 @@ class ActionExecutor:
         )
 
     async def execute_quarantine(self, event: Dict, action: Dict) -> QuarantineResult:
-        """Quarantine file/content"""
-        if "file" not in event:
+        """Quarantine file/content.
+
+        Note: Agents may already move the file and include `quarantined`/`quarantine_path`
+        in the event payload. In that case, we treat quarantine as completed and only
+        record metadata to avoid double-moving or permission errors.
+        """
+        # If agent already quarantined, honor agent-provided metadata
+        if event.get("quarantined") or event.get("quarantine_path"):
+            return QuarantineResult(
+                action_type=ActionType.QUARANTINE,
+                success=True,
+                quarantined=True,
+                original_path=event.get("file_path") or event.get("source_path"),
+                quarantine_path=event.get("quarantine_path"),
+                encrypted=event.get("quarantine_encrypted", False),
+            )
+
+        original_path = (
+            event.get("file_path")
+            or event.get("source_path")
+            or event.get("file", {}).get("path")
+        )
+        if not original_path:
             return QuarantineResult(
                 action_type=ActionType.QUARANTINE,
                 success=False,
                 quarantined=False,
-                error="No file to quarantine"
+                error="No file path to quarantine"
             )
 
-        original_path = event["file"].get("path")
-        quarantine_location = Path(action.get("location", self.quarantine_base))
-        quarantine_location.mkdir(parents=True, exist_ok=True)
-
-        # Generate quarantine filename with timestamp
+        # Determine destination path preference: policy action path -> action location -> default base
+        quarantine_location = Path(
+            action.get("path")
+            or action.get("location")
+            or self.quarantine_base
+        )
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         event_id = event.get("event_id", "unknown")
         quarantine_filename = f"{event_id}_{timestamp}_{Path(original_path).name}"
         quarantine_path = quarantine_location / quarantine_filename
 
-        # In production, this would actually move the file
-        # For now, we'll just track the quarantine action
-        encrypted = action.get("encrypt", False)
-
+        # Backend does not move the file (agents are expected to have done so); record metadata
         event["quarantined"] = True
         event["quarantine_path"] = str(quarantine_path)
         event["quarantine_timestamp"] = datetime.utcnow().isoformat()
@@ -242,7 +261,7 @@ class ActionExecutor:
             event_id=event.get("event_id"),
             original_path=original_path,
             quarantine_path=str(quarantine_path),
-            encrypted=encrypted
+            encrypted=action.get("encrypt", False)
         )
 
         return QuarantineResult(
@@ -251,7 +270,7 @@ class ActionExecutor:
             quarantined=True,
             original_path=original_path,
             quarantine_path=str(quarantine_path),
-            encrypted=encrypted
+            encrypted=action.get("encrypt", False),
         )
 
     async def execute_redact(self, event: Dict, action: Dict) -> RedactResult:

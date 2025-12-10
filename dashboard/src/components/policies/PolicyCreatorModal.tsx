@@ -106,6 +106,7 @@ export default function PolicyCreatorModal({
   )
   const [priority, setPriority] = useState(editingPolicy?.priority || 100)
   const [enabled, setEnabled] = useState(editingPolicy?.enabled ?? true)
+  const [agentIdsInput, setAgentIdsInput] = useState(editingPolicy?.agentIds?.join(', ') || '')
   const [config, setConfig] = useState<ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig>(
     editingPolicy?.config || (policyType ? getDefaultConfig(policyType) : getDefaultConfig('clipboard_monitoring'))
   )
@@ -121,6 +122,7 @@ export default function PolicyCreatorModal({
         setSeverity(editingPolicy.severity)
         setPriority(editingPolicy.priority)
         setEnabled(editingPolicy.enabled)
+        setAgentIdsInput(editingPolicy.agentIds?.join(', ') || '')
         setConfig(editingPolicy.config)
       } else {
         // Reset for new policy
@@ -131,6 +133,7 @@ export default function PolicyCreatorModal({
         setSeverity('medium')
         setPriority(100)
         setEnabled(true)
+        setAgentIdsInput('')
         setConfig(getDefaultConfig('clipboard_monitoring'))
       }
     }
@@ -184,7 +187,11 @@ export default function PolicyCreatorModal({
       severity,
       priority,
       enabled,
-      config
+      config,
+      agentIds: agentIdsInput
+        .split(',')
+        .map(id => id.trim())
+        .filter(id => id.length > 0) || undefined,
     }
 
     const validation = validatePolicy(policy)
@@ -321,6 +328,20 @@ export default function PolicyCreatorModal({
                       <p className="text-xs text-gray-400 mt-1">Higher priority policies are evaluated first</p>
                     </div>
                   </div>
+                {/* Agent Scope */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Target Agents (optional)</label>
+                  <input
+                    type="text"
+                    value={agentIdsInput}
+                    onChange={(e) => setAgentIdsInput(e.target.value)}
+                    placeholder="Comma-separated agent IDs; leave empty for all agents"
+                    className="w-full px-4 py-3 bg-gray-900/50 border-2 border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 transition-all text-sm"
+                  />
+                  <p className="text-xs text-gray-400">
+                    Example: <code>windows-agent-001, 1f77b503-f62d-43f7-afc5-1d226a41ece4</code>
+                  </p>
+                </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="checkbox"

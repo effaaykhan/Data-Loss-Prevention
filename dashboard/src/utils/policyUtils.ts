@@ -208,6 +208,9 @@ export const validatePolicy = (policy: Partial<Policy>): { valid: boolean; error
         if (!Object.values(c.events).some(v => v)) {
           errors.push('At least one event type must be selected')
         }
+        if (c.action === 'quarantine' && !c.quarantinePath?.trim()) {
+          errors.push('Quarantine path is required when action is quarantine')
+        }
         break
       }
       
@@ -223,6 +226,9 @@ export const validatePolicy = (policy: Partial<Policy>): { valid: boolean; error
         const c = policy.config as USBTransferConfig
         if (c.monitoredPaths.length === 0) {
           errors.push('At least one monitored path is required')
+        }
+        if (c.action === 'quarantine' && !c.quarantinePath?.trim()) {
+          errors.push('Quarantine path is required when action is quarantine')
         }
         break
       }
@@ -313,6 +319,7 @@ export const transformApiPolicyToFrontend = (apiPolicy: any): Policy => {
     violations: 0, // TODO: Get from stats endpoint
     lastViolation: undefined, // TODO: Get from stats endpoint
     config: apiPolicy.config || getDefaultConfig(apiPolicy.type as PolicyType),
+    agentIds: apiPolicy.agent_ids || [],
   }
 }
 
@@ -328,6 +335,7 @@ export const transformFrontendPolicyToApi = (policy: Partial<Policy>): any => {
     priority: policy.priority || 100,
     enabled: policy.enabled ?? true,
     config: policy.config,
+    agent_ids: policy.agentIds || [],
     // Backend format (empty for now, will be transformed from config later)
     conditions: [],
     actions: [],

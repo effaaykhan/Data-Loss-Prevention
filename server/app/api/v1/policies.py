@@ -63,6 +63,7 @@ class Policy(BaseModel):
     conditions: Optional[List[PolicyCondition]] = []
     actions: Optional[List[PolicyAction]] = []
     compliance_tags: List[str] = []
+    agent_ids: Optional[List[str]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     created_by: Optional[str] = None
@@ -185,6 +186,7 @@ async def get_policies(
             if isinstance(policy.actions, dict)
             else [],
             "compliance_tags": policy.compliance_tags or [],
+            "agent_ids": policy.agent_ids or [],
             "created_at": policy.created_at,
             "updated_at": policy.updated_at,
             "created_by": str(policy.created_by) if policy.created_by else None,
@@ -224,6 +226,7 @@ async def get_policy(
         if isinstance(policy.actions, dict)
         else [],
         "compliance_tags": policy.compliance_tags or [],
+        "agent_ids": policy.agent_ids or [],
         "created_at": policy.created_at,
         "updated_at": policy.updated_at,
         "created_by": str(policy.created_by) if policy.created_by else None,
@@ -269,6 +272,7 @@ async def create_policy(
             type=policy.type,
             severity=policy.severity,
             config=policy.config,
+            agent_ids=policy.agent_ids or [],
         )
 
         # Sync Google Drive Folders if applicable
@@ -295,6 +299,7 @@ async def create_policy(
             "conditions": policy.conditions or [],
             "actions": policy.actions or [],
             "compliance_tags": created_policy.compliance_tags or [],
+            "agent_ids": created_policy.agent_ids or [],
             "created_at": created_policy.created_at,
             "updated_at": created_policy.updated_at,
             "created_by": str(created_policy.created_by) if created_policy.created_by else None,
@@ -341,6 +346,7 @@ async def update_policy(
             type=policy.type,
             severity=policy.severity,
             config=policy.config,
+            agent_ids=policy.agent_ids or [],
         )
 
         if not updated_policy:
@@ -369,6 +375,7 @@ async def update_policy(
             "conditions": policy.conditions or [],
             "actions": policy.actions or [],
             "compliance_tags": updated_policy.compliance_tags or [],
+            "agent_ids": updated_policy.agent_ids or [],
             "created_at": updated_policy.created_at,
             "updated_at": updated_policy.updated_at,
             "created_by": str(updated_policy.created_by) if updated_policy.created_by else None,

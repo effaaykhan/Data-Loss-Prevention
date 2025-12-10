@@ -104,7 +104,7 @@ export default function USBTransferPolicyForm({ config, onChange }: USBTransferP
               name="usb-transfer-action"
               value="block"
               checked={config.action === 'block'}
-              onChange={() => onChange({ ...config, action: 'block' })}
+              onChange={() => onChange({ ...config, action: 'block', quarantinePath: undefined })}
               className="w-4 h-4 text-indigo-600"
             />
             <div>
@@ -149,7 +149,7 @@ export default function USBTransferPolicyForm({ config, onChange }: USBTransferP
               name="usb-transfer-action"
               value="alert"
               checked={config.action === 'alert'}
-              onChange={() => onChange({ ...config, action: 'alert' })}
+              onChange={() => onChange({ ...config, action: 'alert', quarantinePath: undefined })}
               className="w-4 h-4 text-indigo-600"
             />
             <div>

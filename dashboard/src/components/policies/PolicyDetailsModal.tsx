@@ -99,6 +99,16 @@ export default function PolicyDetailsModal({ isOpen, policy, onClose }: PolicyDe
             </div>
           )}
 
+          {/* Scope */}
+          <div>
+            <label className="text-sm font-medium text-gray-600">Scope</label>
+            <p className="mt-1 text-gray-900">
+              {policy.agentIds && policy.agentIds.length > 0
+                ? `Selected agents (${policy.agentIds.length}): ${policy.agentIds.join(', ')}`
+                : 'All agents'}
+            </p>
+          </div>
+
           {/* Configuration */}
           <div>
             <h4 className="text-lg font-semibold text-gray-900 mb-4">Configuration</h4>

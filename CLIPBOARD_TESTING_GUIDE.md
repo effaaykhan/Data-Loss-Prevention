@@ -196,3 +196,15 @@ docker compose logs manager --tail 50 | grep -E "(AADHAAR|PAN|IFSC|UPI|SOURCE_CO
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+

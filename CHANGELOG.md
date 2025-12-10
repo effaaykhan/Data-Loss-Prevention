@@ -138,6 +138,21 @@ This document details all changes, fixes, and improvements made during testing a
 
 ## 🎯 Latest Updates (December 2025)
 
+### 18. Policy System & Agent Alignment (early December 2025)
+- Backend: tightened policy bundle generation (`agent_policy_transformer`), agent policy sync API, and action execution paths to reflect updated policy schemas; added tests for transformer and Google Drive normalization/models.
+- Agents: Linux agent classification and config defaults aligned; supports faster policy sync cadence and logs richer heartbeat/sync telemetry.
+- Frontend: policy forms/types updated to current backend schema (actions, fields), details modal and table rows refreshed to reflect new policy shape.
+- Data: Alembic migration for Google Drive tables kept in sync; sample test files expanded for new classifiers/policies.
+- Note: Quarantine remains future work (tracked in `archive/FUTURE_TODO.md`); current actions focus on alert/log/block.
+
+### 17. Installer Automation (Windows & Linux) - December 10, 2025
+- Added scripted installers:
+  - **Windows:** `scripts/install_windows_agent.ps1` clones the agent, builds a venv, templates config, and registers a SYSTEM AtStartup Scheduled Task with restart-on-failure. Docs include usage, args, and troubleshooting.
+  - **Linux:** `scripts/install_linux_agent.sh` clones the agent, builds a venv, templates config, and installs a systemd service (boot autostart, restart on failure).
+- Docs: `scripts/README.md` updated with arguments, examples, and post-install commands.
+- Hardening: Linux installer skips empty configs, handles `--force` clean re-provisioning, and notes agent log location (`/root/cybersentinel_agent.log` by default).
+- Outcome: Both agents verified to auto-start after reboot; Linux logs surface 404 if manager is down (expected until registration).
+
 ### 16. India-Specific Detection & Clipboard Policy Alignment
 
 #### Summary
