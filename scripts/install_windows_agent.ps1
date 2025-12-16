@@ -58,6 +58,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Resolve-ManagerUrl {
+    param([string]$Current)
+    $envUrl = $env:CYBERSENTINEL_SERVER_URL
+    if (-not $envUrl) { $envUrl = $env:MANAGER_URL }
+    if (-not $PSBoundParameters.ContainsKey('ManagerUrl') -and $envUrl) {
+        return $envUrl
+    }
+    return $Current
+}
+
 function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Write-Ok($msg) { Write-Host "[ OK ] $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -89,6 +99,10 @@ try {
     Require-Admin
     Require-Command git
     Require-Command python
+
+if (-not $PSBoundParameters.ContainsKey('ManagerUrl')) {
+    $ManagerUrl = Resolve-ManagerUrl $ManagerUrl
+}
 
     if (-not $VenvDir) { $VenvDir = Join-Path $InstallDir "venv" }
     if (-not $LogPath) { $LogPath = Join-Path $ConfigDir "cybersentinel_agent.log" }

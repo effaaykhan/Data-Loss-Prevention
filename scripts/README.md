@@ -15,6 +15,7 @@
 - `-NoStart` (switch): Register task but do not start it.
 - `-Force` (switch): Re-clone and overwrite existing config/venv.
 - Use parentheses around `-and` expressions if you run into PS parsing quirks on some hosts.
+- If `CYBERSENTINEL_SERVER_URL` or `MANAGER_URL` is set in the environment and you omit `-ManagerUrl`, the installer uses that value.
 
 ## Usage Examples
 - Fresh install (defaults):  
@@ -34,6 +35,8 @@
 - The Scheduled Task runs as SYSTEM at startup with restart-on-failure.
 - Config is written to `<ConfigDir>\agent_config.json`; existing config is preserved unless `-Force` is used.
 - Logs by default are written next to the agent if not configured: `C:\Program Files\CyberSentinel\agent\cybersentinel_agent.log`. If you set `-LogPath`, they can go under `<ConfigDir>`.
+- Remote host example:  
+  `powershell -ExecutionPolicy Bypass -File .\install_windows_agent.ps1 -ManagerUrl "http://<HOST>:55000/api/v1"`
 
 ## Useful Commands (Windows)
 - Check task status: `Get-ScheduledTask -TaskName CyberSentinelAgent`
@@ -57,6 +60,10 @@
 - `--log-path` (default `<install-dir>/cybersentinel_agent.log`)
 - `--no-start` (skip starting service)
 - `--force` (re-clone and overwrite config/venv)
+- If `CYBERSENTINEL_SERVER_URL` is set and you omit `--manager-url`, the installer uses that value.
+
+### Remote host example
+`sudo CYBERSENTINEL_SERVER_URL=http://<HOST>:55000/api/v1 bash scripts/install_linux_agent.sh --force`
 
 ## Usage Examples
 - Fresh install:  

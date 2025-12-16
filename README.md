@@ -151,12 +151,13 @@ The easiest way to deploy CyberSentinel DLP is using Docker Compose.
 git clone https://github.com/effaaykhan/Data-Loss-Prevention.git
 cd Data-Loss-Prevention
 
-# 2. Configure environment (use localhost for dashboard → API)
+# 2. Configure environment (set your host for API/dashboard)
 cp .env.example .env
-# Recommended for local/WSL:
-#   CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
-#   VITE_API_URL=http://localhost:55000/api/v1
-#   VITE_WS_URL=ws://localhost:55000/ws
+# For local/WSL (inside compose): keep localhost defaults.
+# For remote deploys: set these to your host/IP before build:
+#   CORS_ORIGINS=["http://<HOST>:3000"]
+#   VITE_API_URL=http://<HOST>:55000/api/v1
+#   VITE_WS_URL=ws://<HOST>:55000/ws
 nano .env  # Edit database passwords, JWT secret, etc.
 
 # 3. Start all services
@@ -177,6 +178,14 @@ docker-compose ps
 - **OpenSearch**: http://localhost:9200
 - **Prometheus**: http://localhost:9090
 
+### Deployment URL Checklist (remote host)
+- Set in `.env` before building/running:
+  - `SERVER_IP=<HOST_OR_DOMAIN>`
+  - `CORS_ORIGINS=["http://<HOST>:3000"]` (add more as needed)
+  - `VITE_API_URL=http://<HOST>:55000/api/v1`
+  - `VITE_WS_URL=ws://<HOST>:55000/ws`
+- Agents:
+  - Set `CYBERSENTINEL_SERVER_URL=http://<HOST>:55000/api/v1` on agent machines, or pass the manager URL to the installer scripts.
 ### Default Credentials
 
 ```

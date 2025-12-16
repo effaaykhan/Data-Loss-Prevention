@@ -75,21 +75,25 @@ hostname -I | awk '{print $1}'
 
 #### Update Environment for Containers (avoid host-IP drift)
 
-Use `.env` to drive both manager and dashboard. For local/WSL installs keep the dashboard hitting the API via `localhost` (inside the docker network) so bundle calls don’t break when the host IP changes:
+Use `.env` to drive both manager and dashboard. For local/WSL installs you can keep the dashboard hitting the API via `localhost` (inside the docker network). For remote browsers, set these to your host/IP before building:
 
 ```
 # .env
-CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
-VITE_API_URL=http://localhost:55000/api/v1
-VITE_WS_URL=ws://localhost:55000/ws
+CORS_ORIGINS=["http://<HOST>:3000","http://127.0.0.1:3000"]
+VITE_API_URL=http://<HOST>:55000/api/v1
+VITE_WS_URL=ws://<HOST>:55000/ws
 ```
 
-If you need remote browser access, add your host IP to `CORS_ORIGINS`, but leave `VITE_API_URL`/`VITE_WS_URL` on `http://localhost:55000` so the container build still works everywhere. After changing these, rebuild the dashboard:
+After changing these, rebuild the dashboard:
 
 ```bash
 docker compose build --no-cache dashboard
 docker compose up -d dashboard
 ```
+
+#### Agent deployment (remote host)
+- Windows: run `scripts/install_windows_agent.ps1 -ManagerUrl "http://<HOST>:55000/api/v1"` (or set `CYBERSENTINEL_SERVER_URL` before running).
+- Linux: run `scripts/install_linux_agent.sh --manager-url http://<HOST>:55000/api/v1` (or set `CYBERSENTINEL_SERVER_URL`); service autostarts on boot.
 
 ### Step 3: Initialize Database
 
