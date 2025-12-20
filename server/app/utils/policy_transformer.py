@@ -23,6 +23,8 @@ def transform_frontend_config_to_backend(
         return _transform_clipboard_config(config)
     elif policy_type == "file_system_monitoring":
         return _transform_file_system_config(config)
+    elif policy_type == "file_transfer_monitoring":
+        return _transform_file_transfer_config(config)
     elif policy_type == "usb_device_monitoring":
         return _transform_usb_device_config(config)
     elif policy_type == "usb_file_transfer_monitoring":
@@ -191,8 +193,7 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
             "delete": false,
             "move": true
         },
-        "action": "alert" | "quarantine" | "block" | "log",
-        "quarantinePath": "C:\\Quarantine" (optional)
+        "action": "alert" | "log"  # Detection-only
     }
 
     Backend format:
@@ -212,7 +213,6 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
     file_extensions = config.get("fileExtensions", [])
     events = config.get("events", {})
     action = config.get("action", "log")
-    quarantine_path = config.get("quarantinePath")
 
     rules = []
 
@@ -273,12 +273,10 @@ def _transform_file_system_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any
         "rules": rules,
     }
 
-    # Build actions
-    actions = {}
-    if action == "quarantine" and quarantine_path:
-        actions["quarantine"] = {"path": quarantine_path}
-    else:
-        actions[action] = {}
+    # Enforce detection-only semantics (no block/quarantine here)
+    if action not in {"alert", "log"}:
+        action = "log"
+    actions = {action: {}}
 
     return conditions, actions
 
@@ -547,6 +545,110 @@ def _transform_usb_transfer_config(config: Dict[str, Any]) -> Tuple[Dict[str, An
         actions["quarantine"] = {"path": quarantine_path}
     else:
         actions[action] = {}
+
+    return conditions, actions
+
+
+def _transform_file_transfer_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Transform protected->destination file transfer monitoring config to backend format
+
+    Frontend format:
+    {
+        "protectedPaths": ["C:\\Sensitive", "/opt/data"],
+        "monitoredDestinations": ["D:\\Staging", "/mnt/usb"],
+        "fileExtensions": [".pdf", ".docx"],  // Optional
+        "events": {
+            "create": true,
+            "modify": true,
+            "delete": false,
+            "move": true
+        },
+        "action": "block" | "quarantine" | "alert",
+        "quarantinePath": "C:\\Quarantine" (optional, for quarantine action)
+    }
+
+    Backend format:
+    conditions: {
+        "match": "all",
+        "rules": [
+            {"field": "source_path", "operator": "matches_any_prefix", "value": [...]},
+            {"field": "destination_path", "operator": "matches_any_prefix", "value": [...]},
+            {"field": "event_subtype", "operator": "in", "value": [...]},
+            {"field": "file_extension", "operator": "in", "value": [".pdf", ...]} (if specified)
+        ]
+    }
+    actions: {
+        "block": {} | "quarantine": {"path": "..."} | "alert": {}
+    }
+    """
+    protected_paths = config.get("protectedPaths", [])
+    monitored_destinations = config.get("monitoredDestinations", [])
+    file_extensions = config.get("fileExtensions", [])
+    events = config.get("events", {})
+    action = config.get("action", "block")
+    quarantine_path = config.get("quarantinePath")
+
+    rules = []
+
+    def _path_rule(field: str, paths: List[str]) -> Optional[Dict[str, Any]]:
+        if not paths:
+            return None
+        if len(paths) == 1:
+            return {"field": field, "operator": "starts_with", "value": paths[0]}
+        return {"field": field, "operator": "matches_any_prefix", "value": paths}
+
+    src_rule = _path_rule("source_path", protected_paths)
+    if src_rule:
+        rules.append(src_rule)
+
+    dest_rule = _path_rule("destination_path", monitored_destinations)
+    if dest_rule:
+        rules.append(dest_rule)
+
+    # Event mapping (we care about creates/modifies/moves at the destination)
+    event_name_map = {
+        "create": "file_created",
+        "modify": "file_modified",
+        "delete": "file_deleted",
+        "move": "file_moved",
+    }
+    enabled_events = [
+        event_name_map.get(event, event)
+        for event, enabled in events.items()
+        if enabled
+    ]
+    if enabled_events:
+        rules.append(
+            {
+                "field": "event_subtype",
+                "operator": "in",
+                "value": enabled_events,
+            }
+        )
+
+    if file_extensions:
+        rules.append(
+            {
+                "field": "file_extension",
+                "operator": "in",
+                "value": file_extensions,
+            }
+        )
+
+    conditions = {
+        "match": "all",
+        "rules": rules,
+    }
+
+    actions = {}
+    if action == "quarantine" and quarantine_path:
+        actions["quarantine"] = {"path": quarantine_path}
+    elif action == "alert":
+        actions["alert"] = {}
+    else:
+        # Default to block when unspecified/invalid
+        actions["block"] = {}
 
     return conditions, actions
 

@@ -157,6 +157,34 @@ class RemovableDriveHandler(FileSystemEventHandler):
             self.agent.handle_removable_drive_file(event.src_path)
 
 
+class TransferDestinationHandler(FileSystemEventHandler):
+    """Handles file system events on monitored destination paths (non-USB transfers)"""
+
+    def __init__(self, agent):
+        self.agent = agent
+        super().__init__()
+
+    def on_created(self, event: FileSystemEvent):
+        if not event.is_directory:
+            logger.info(
+                "TransferDestinationHandler: file created event",
+                extra={"path": event.src_path, "is_directory": event.is_directory},
+            )
+            self.agent.handle_transfer_destination_event(event.src_path)
+        else:
+            logger.debug(f"TransferDestinationHandler: ignoring directory creation: {event.src_path}")
+
+    def on_modified(self, event: FileSystemEvent):
+        if not event.is_directory:
+            logger.info(
+                "TransferDestinationHandler: file modified event",
+                extra={"path": event.src_path, "is_directory": event.is_directory},
+            )
+            self.agent.handle_transfer_destination_event(event.src_path)
+        else:
+            logger.debug(f"TransferDestinationHandler: ignoring directory modification: {event.src_path}")
+
+
 class DLPAgent:
     """Main DLP Agent class"""
 
@@ -172,11 +200,15 @@ class DLPAgent:
         self.policy_clipboard_rules: List[Dict[str, Any]] = []
         self.usb_transfer_policies: List[Dict[str, Any]] = []
         self.usb_transfer_policy_present: bool = False
+        self.file_transfer_policies: List[Dict[str, Any]] = []
+        self.transfer_protected_paths: List[str] = []
+        self.transfer_destination_paths: List[str] = []
         self.has_any_policies: bool = False
         self.has_file_policies: bool = False
         self.has_clipboard_policies: bool = False
         self.has_usb_device_policies: bool = False
         self.has_usb_transfer_policies: bool = False
+        self.has_file_transfer_policies: bool = False
         self.has_gdrive_local_policies: bool = False
         self.allow_events: bool = False
         self.active_policy_version: Optional[str] = None
@@ -193,6 +225,7 @@ class DLPAgent:
         self.transfer_blocking_config = self.config.get("monitoring", {}).get("transfer_blocking", {})
         self.transfer_blocking_enabled = bool(self.transfer_blocking_config.get("enabled", False))
         self.transfer_blocking_thread_started = False
+        self.transfer_observers: List[Observer] = []  # Non-USB destination observers
         
         # Deduplication: Track recent events to prevent duplicates
         self.recent_events = {}  # {(file_path, event_type): timestamp}
@@ -294,6 +327,12 @@ class DLPAgent:
             observer.stop()
             observer.join()
         self.removable_observers.clear()
+
+        # Stop transfer destination observers
+        for observer in self.transfer_observers:
+            observer.stop()
+            observer.join()
+        self.transfer_observers = []
         
         logger.info("Agent stopped")
 
@@ -403,6 +442,7 @@ class DLPAgent:
         file_policies = policies.get("file_system_monitoring", [])
         clipboard_policies = policies.get("clipboard_monitoring", [])
         usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
+        file_transfer_policies = policies.get("file_transfer_monitoring", [])
         google_drive_local_policies = policies.get("google_drive_local_monitoring", [])
         usb_device_policies = policies.get("usb_device_monitoring", [])
 
@@ -440,18 +480,23 @@ class DLPAgent:
         # Normalize paths inside USB transfer policies for reliable matching
         self.usb_transfer_policies = self._normalize_usb_transfer_policies(usb_transfer_policies)
         self.usb_transfer_policy_present = bool(self.usb_transfer_policies)
+        self.file_transfer_policies = self._normalize_file_transfer_policies(file_transfer_policies)
+        self.transfer_protected_paths = self._collect_transfer_paths(self.file_transfer_policies, key="protectedPaths")
+        self.transfer_destination_paths = self._collect_transfer_paths(self.file_transfer_policies, key="monitoredDestinations")
 
         # Derive capability flags from bundle
         self.has_file_policies = bool(file_policies or google_drive_local_policies or usb_transfer_policies)
         self.has_clipboard_policies = bool(clipboard_policies)
         self.has_usb_device_policies = bool(usb_device_policies)
         self.has_usb_transfer_policies = bool(usb_transfer_policies)
+        self.has_file_transfer_policies = bool(file_transfer_policies)
         self.has_gdrive_local_policies = bool(google_drive_local_policies)
         self.has_any_policies = any([
             self.has_file_policies,
             self.has_clipboard_policies,
             self.has_usb_device_policies,
             self.has_usb_transfer_policies,
+            self.has_file_transfer_policies,
             self.has_gdrive_local_policies,
         ])
         self.allow_events = self.has_any_policies
@@ -462,6 +507,7 @@ class DLPAgent:
             file_names = [p.get("name") for p in file_policies]
             usb_names = [p.get("name") for p in usb_device_policies]
             usb_transfer_names = [p.get("name") for p in usb_transfer_policies]
+            file_transfer_names = [p.get("name") for p in file_transfer_policies]
             gdrive_local_names = [p.get("name") for p in google_drive_local_policies]
 
             logger.info(
@@ -475,6 +521,8 @@ class DLPAgent:
                     "usb_device_policies": usb_names,
                     "has_usb_transfer_policies": self.has_usb_transfer_policies,
                     "usb_transfer_policies": usb_transfer_names,
+                    "has_file_transfer_policies": self.has_file_transfer_policies,
+                    "file_transfer_policies": file_transfer_names,
                     "has_gdrive_local_policies": self.has_gdrive_local_policies,
                     "gdrive_local_policies": gdrive_local_names,
                 },
@@ -483,9 +531,29 @@ class DLPAgent:
             logger.debug(f"Failed to log applied policy bundle: {e}")
 
         # If policies require transfer blocking, enable the watcher even if config file has it disabled
-        if self.usb_transfer_policy_present and not self.transfer_blocking_enabled:
+        # Check both USB transfer policies and file_transfer policies with removable destinations
+        has_removable_destinations = False
+        if self.has_file_transfer_policies and self.transfer_destination_paths:
+            removable_drives = set(self.get_removable_drives())
+            for dest_path in self.transfer_destination_paths:
+                expanded = self._normalize_filesystem_path(dest_path)
+                drive_letter = None
+                if len(expanded) == 3 and expanded[1] == ":" and expanded.endswith("\\"):
+                    drive_letter = expanded[:-1]
+                elif len(expanded) == 2 and expanded[1] == ":":
+                    drive_letter = expanded
+                if drive_letter and drive_letter in removable_drives:
+                    has_removable_destinations = True
+                    break
+        
+        if (self.usb_transfer_policy_present or has_removable_destinations) and not self.transfer_blocking_enabled:
             self.transfer_blocking_enabled = True
-            logger.info("Enabling removable drive monitoring due to usb_file_transfer_monitoring policies")
+            reason = []
+            if self.usb_transfer_policy_present:
+                reason.append("usb_file_transfer_monitoring policies")
+            if has_removable_destinations:
+                reason.append("file_transfer_monitoring policies with removable drive destinations")
+            logger.info(f"Enabling removable drive monitoring due to: {', '.join(reason)}")
 
         # Reconcile monitor state with current policies
         self._reconcile_monitors()
@@ -541,6 +609,42 @@ class DLPAgent:
                     return policy
         return None
 
+    def _match_file_transfer_policy(self, source_path: str, dest_path: str) -> Optional[Dict[str, Any]]:
+        """Find matching non-USB transfer policy for a given source/destination pair."""
+        if not self.file_transfer_policies:
+            return None
+        norm_src = self._normalize_compare_path(source_path)
+        norm_dest = self._normalize_compare_path(dest_path)
+        for policy in self.file_transfer_policies:
+            cfg = policy.get("config", {}) or {}
+            protected_paths = cfg.get("protectedPaths", [])
+            dest_paths = cfg.get("monitoredDestinations", [])
+            
+            # Check if source matches any protected path
+            src_matches = any(
+                self._is_path_prefix(norm_src, self._normalize_compare_path(p)) 
+                for p in protected_paths
+            )
+            
+            # Check if destination matches any monitored destination
+            # Special handling for drive roots (E:\) - normalize to E: for comparison
+            dest_matches = False
+            for d in dest_paths:
+                norm_dest_path = self._normalize_compare_path(d)
+                # Handle drive roots: if normalized path is "e:\", compare as "e:"
+                # (os.path.normpath keeps trailing backslash for drive roots)
+                if len(norm_dest_path) == 3 and norm_dest_path[1] == ":" and norm_dest_path.endswith("\\"):
+                    norm_dest_path = norm_dest_path[:-1]  # Remove trailing backslash: "e:\" -> "e:"
+                
+                # Check if destination file path starts with the destination path
+                if norm_dest.startswith(norm_dest_path + "\\") or norm_dest == norm_dest_path:
+                    dest_matches = True
+                    break
+            
+            if src_matches and dest_matches:
+                return policy
+        return None
+
     def start_file_monitoring(self):
         """Start monitoring file system"""
         if not self.has_file_policies:
@@ -577,6 +681,104 @@ class DLPAgent:
         self.observers = []
         self.monitored_directories = []
         logger.info("File monitoring stopped")
+
+    def start_transfer_monitoring(self):
+        """Start monitoring destination paths for non-USB file transfers."""
+        if not self.has_file_transfer_policies:
+            logger.info("Skipping transfer monitoring start; no active transfer policies")
+            return
+
+        if not self.transfer_destination_paths:
+            logger.warning("No monitored destinations configured for transfer monitoring")
+            return
+
+        logger.info(
+            "Starting transfer destination monitoring",
+            extra={
+                "destination_paths": self.transfer_destination_paths,
+                "protected_paths": self.transfer_protected_paths,
+            },
+        )
+
+        # Check which destinations are removable drives
+        removable_drives = set(self.get_removable_drives())
+
+        for path in self.transfer_destination_paths:
+            expanded_path = self._normalize_filesystem_path(path)
+
+            # Special handling for drive roots like "E:\" – watchdog works more
+            # reliably when scheduled on "E:" (without trailing backslash),
+            # which is what we already use for removable drive monitoring.
+            schedule_path = expanded_path
+            drive_letter = None
+            if (
+                len(expanded_path) == 3
+                and expanded_path[1] == ":"
+                and expanded_path.endswith("\\")
+            ):
+                schedule_path = expanded_path[:-1]  # "E:" instead of "E:\"
+                drive_letter = schedule_path
+
+            # Check if this is a removable drive
+            # Removable drives are handled by monitor_removable_drives() and _start_monitoring_removable_drive()
+            # which use RemovableDriveHandler -> handle_removable_drive_file()
+            # So we skip scheduling a separate observer here for removable drives
+            if drive_letter and drive_letter in removable_drives:
+                logger.info(
+                    "Transfer destination is a removable drive - will be monitored via removable drive monitoring system",
+                    extra={
+                        "configured_path": path,
+                        "normalized_path": expanded_path,
+                        "drive_letter": drive_letter,
+                        "note": "RemovableDriveHandler will handle events and check file_transfer_policies",
+                    },
+                )
+                continue  # Skip - handled by removable drive monitoring
+
+            if os.path.exists(schedule_path):
+                try:
+                    handler = TransferDestinationHandler(self)
+                    observer = Observer()
+                    observer.schedule(handler, schedule_path, recursive=True)
+                    observer.start()
+                    self.transfer_observers.append(observer)
+                    logger.info(
+                        "Monitoring transfer destination",
+                        extra={
+                            "configured_path": path,
+                            "normalized_path": expanded_path,
+                            "schedule_path": schedule_path,
+                            "observer_count": len(self.transfer_observers),
+                        },
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to start observer for transfer destination: {schedule_path}",
+                        exc_info=True,
+                        extra={
+                            "configured_path": path,
+                            "normalized_path": expanded_path,
+                            "schedule_path": schedule_path,
+                            "error": str(e),
+                        },
+                    )
+            else:
+                logger.warning(
+                    "Destination path does not exist for transfer monitoring",
+                    extra={
+                        "configured_path": path,
+                        "normalized_path": expanded_path,
+                        "schedule_path": schedule_path,
+                    },
+                )
+
+    def stop_transfer_monitoring(self):
+        """Stop all transfer destination observers."""
+        for observer in self.transfer_observers:
+            observer.stop()
+            observer.join()
+        self.transfer_observers = []
+        logger.info("Transfer destination monitoring stopped")
 
     def monitor_clipboard(self):
         """Monitor clipboard for sensitive data"""
@@ -702,12 +904,18 @@ class DLPAgent:
         """
         Monitor removable drives for file operations
         Runs in background thread, polls for new drives periodically
+        Supports both USB transfer policies and file_transfer policies with removable destinations
         """
         poll_interval = self.config.get("monitoring", {}).get("transfer_blocking", {}).get("poll_interval_seconds", 5)
         
         while self.running:
             try:
-                if not self.transfer_blocking_enabled or not self.has_usb_transfer_policies or not self.allow_events:
+                # Run if we have USB transfer policies OR file_transfer policies with removable destinations
+                has_relevant_policies = (
+                    self.has_usb_transfer_policies or
+                    (self.has_file_transfer_policies and self.transfer_destination_paths)
+                )
+                if not self.transfer_blocking_enabled or not has_relevant_policies or not self.allow_events:
                     time.sleep(poll_interval)
                     continue
 
@@ -1022,15 +1230,23 @@ class DLPAgent:
     def handle_removable_drive_file(self, file_path: str):
         """
         Handle file created on removable drive
-        Check if it matches a file from monitored directory
+        Check if it matches a file from monitored directory (USB transfer) or protected paths (file_transfer)
         
         Args:
             file_path: Path to file on removable drive (e.g., "E:\\document.pdf")
         """
         try:
-            if not self.allow_events or not self.has_usb_transfer_policies:
+            # Check both USB transfer policies and file_transfer policies (which may have removable destinations)
+            if not self.allow_events or (not self.has_usb_transfer_policies and not self.has_file_transfer_policies):
                 return
-            logger.info(f"File detected on removable drive: {file_path}")
+            logger.info(
+                "File detected on removable drive",
+                extra={
+                    "file_path": file_path,
+                    "has_usb_transfer_policies": self.has_usb_transfer_policies,
+                    "has_file_transfer_policies": self.has_file_transfer_policies,
+                },
+            )
             
             # Normalize path (handle both E:file.txt and E:\file.txt)
             if not file_path.startswith("\\"):
@@ -1075,18 +1291,41 @@ class DLPAgent:
                 return
             logger.info(f"File hash calculated: {file_hash[:16]}... (length: {len(file_hash)})")
             
-            # Check monitored directories
-            logger.info(f"Checking {len(self.monitored_directories)} monitored directories: {self.monitored_directories}")
+            # Check monitored directories (for USB transfer) and protected paths (for file_transfer)
+            search_dirs = []
+            if self.has_usb_transfer_policies:
+                search_dirs.extend(self.monitored_directories)
+            if self.has_file_transfer_policies:
+                search_dirs.extend(self.transfer_protected_paths)
             
-            # Check if identical file exists in monitored directories
-            source_file = self._find_source_file_in_monitored_dirs(file_hash, file_size, file_name)
+            logger.info(
+                "Checking for matching source file",
+                extra={
+                    "monitored_directories": self.monitored_directories,
+                    "transfer_protected_paths": self.transfer_protected_paths,
+                    "search_dirs": search_dirs,
+                },
+            )
+            
+            # Check if identical file exists in monitored directories or protected paths
+            source_file = None
+            if self.has_usb_transfer_policies and self.monitored_directories:
+                source_file = self._find_source_file_in_monitored_dirs(file_hash, file_size, file_name)
+            if not source_file and self.has_file_transfer_policies and self.transfer_protected_paths:
+                source_file = self._find_source_file_in_dirs(self.transfer_protected_paths, file_hash, file_size, file_name)
             
             if source_file:
                 logger.warning(f"Copy detected: {source_file} -> {file_path}")
 
-                policy = self._match_usb_transfer_policy(source_file)
+                # Try to match USB transfer policy first, then file_transfer policy
+                policy = None
+                if self.has_usb_transfer_policies:
+                    policy = self._match_usb_transfer_policy(source_file)
+                if not policy and self.has_file_transfer_policies:
+                    policy = self._match_file_transfer_policy(source_file, file_path)
+                
                 if not policy:
-                    logger.info("No USB transfer policy matched; leaving file in place")
+                    logger.info("No transfer policy matched; leaving file in place")
                     return
 
                 policy_action = policy.get("config", {}).get("action", "block").lower()
@@ -1105,6 +1344,11 @@ class DLPAgent:
                 elif policy_action == "block":
                     blocked = self.block_file_transfer(file_path)
 
+                # Determine destination type based on which policy matched
+                destination_type = "removable_drive"
+                if policy and policy.get("policy_type") == "file_transfer_monitoring":
+                    destination_type = "file_transfer_destination"
+                
                 # Send transfer event (blocked or attempted), including quarantine metadata if applicable
                 self._send_blocked_transfer_event(
                     source_file,
@@ -1115,12 +1359,115 @@ class DLPAgent:
                     policy=policy,
                     action=policy_action,
                     quarantine_path=quarantine_path,
+                    destination_type=destination_type,
                 )
             else:
-                logger.info(f"File on removable drive not found in monitored directories: {file_path} (Name: {file_name}, Size: {file_size})")
+                logger.info(
+                    "File on removable drive not found in monitored/protected directories",
+                    extra={
+                        "file_path": file_path,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "monitored_dirs": self.monitored_directories,
+                        "protected_paths": self.transfer_protected_paths,
+                    },
+                )
                 
         except Exception as e:
             logger.error(f"Error handling removable drive file: {e}", exc_info=True)
+
+    def handle_transfer_destination_event(self, dest_path: str):
+        """Handle file events on monitored destination paths (non-USB transfers)."""
+        try:
+            logger.info(
+                "Transfer destination event detected",
+                extra={
+                    "dest_path": dest_path,
+                    "has_file_transfer_policies": self.has_file_transfer_policies,
+                    "allow_events": self.allow_events,
+                },
+            )
+
+            if not self.allow_events or not self.has_file_transfer_policies:
+                logger.debug("Skipping transfer destination event: no policies or events disabled")
+                return
+
+            if not os.path.exists(dest_path):
+                logger.debug(f"Destination file does not exist: {dest_path}")
+                return
+
+            file_size = os.path.getsize(dest_path)
+            file_name = Path(dest_path).name
+
+            logger.info(
+                "Processing transfer destination file",
+                extra={
+                    "dest_path": dest_path,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "protected_paths": self.transfer_protected_paths,
+                },
+            )
+
+            # Small delay to allow copy to settle
+            time.sleep(0.2)
+
+            # Hash destination
+            file_hash = self._calculate_file_hash(dest_path)
+            if not file_hash:
+                logger.warning(f"Failed to calculate hash for destination file: {dest_path}")
+                return
+
+            logger.info(f"Destination file hash: {file_hash[:16]}...")
+
+            # Find matching source in protected paths
+            source_file = self._find_source_file_in_dirs(self.transfer_protected_paths, file_hash, file_size, file_name)
+            if not source_file:
+                logger.info(
+                    "No matching source file found in protected paths",
+                    extra={
+                        "dest_path": dest_path,
+                        "file_name": file_name,
+                        "file_hash": file_hash[:16] + "...",
+                        "protected_paths": self.transfer_protected_paths,
+                    },
+                )
+                return
+
+            logger.info(f"Found matching source file: {source_file}")
+
+            policy = self._match_file_transfer_policy(source_file, dest_path)
+            if not policy:
+                logger.debug("No file_transfer policy matched for destination event", extra={"dest": dest_path})
+                return
+
+            policy_action = policy.get("config", {}).get("action", "block").lower()
+            quarantine_path: Optional[str] = None
+            blocked = False
+
+            if policy_action == "quarantine":
+                quarantine_path = self.quarantine_file(dest_path)
+                blocked = bool(quarantine_path)
+                if not blocked:
+                    logger.warning("Quarantine requested but failed for transfer event", extra={"dest": dest_path})
+            elif policy_action == "alert":
+                blocked = False
+            else:
+                blocked = self.block_file_transfer(dest_path)
+
+            self._send_blocked_transfer_event(
+                source_file,
+                dest_path,
+                file_hash,
+                file_size,
+                blocked,
+                policy=policy,
+                action=policy_action,
+                quarantine_path=quarantine_path,
+                destination_type="endpoint_destination",
+            )
+        except Exception as e:
+            logger.error(f"Error handling transfer destination event: {e}", exc_info=True)
 
     def _find_source_file_in_monitored_dirs(self, file_hash: str, file_size: int, file_name: str) -> Optional[str]:
         """
@@ -1191,6 +1538,30 @@ class DLPAgent:
         logger.warning(f"No matching file found for: {file_name} after searching all monitored directories")
         return None
 
+    def _find_source_file_in_dirs(self, search_dirs: List[str], file_hash: str, file_size: int, file_name: str) -> Optional[str]:
+        """Generic search for a matching file by hash/size/name in provided directories."""
+        if not file_hash or not search_dirs:
+            return None
+
+        for monitored_dir in search_dirs:
+            try:
+                for root, dirs, files in os.walk(monitored_dir):
+                    if file_name in files:
+                        candidate_path = os.path.join(root, file_name)
+                        try:
+                            candidate_size = os.path.getsize(candidate_path)
+                            if candidate_size != file_size:
+                                continue
+                        except Exception:
+                            continue
+
+                        candidate_hash = self._calculate_file_hash(candidate_path)
+                        if candidate_hash and candidate_hash == file_hash:
+                            return candidate_path
+            except Exception:
+                continue
+        return None
+
     def block_file_transfer(self, file_path: str) -> bool:
         """
         Block file transfer by deleting the file
@@ -1227,6 +1598,7 @@ class DLPAgent:
         policy: Optional[Dict[str, Any]] = None,
         action: str = "block",
         quarantine_path: Optional[str] = None,
+        destination_type: str = "removable_drive",
     ):
         """
         Send event for blocked transfer
@@ -1275,12 +1647,13 @@ class DLPAgent:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "classification": classification,
-                "destination": dest_file,  # Destination on removable drive
+                "destination": dest_file,  # Destination on removable drive (legacy field)
+                "destination_path": dest_file,  # Destination path (API expects this)
                 "source_path": source_file,
                 "blocked": blocked,
-                "destination_type": "removable_drive",
+                "destination_type": destination_type,
                 "content": content[:5000] if content else None,
-                "transfer_type": "usb_copy",
+                "transfer_type": "usb_copy" if destination_type == "removable_drive" else "file_transfer",
                 "timestamp": datetime.utcnow().isoformat(),
                 "policy_id": policy.get("id") if policy else None,
                 "policy_name": policy.get("name") if policy else None,
@@ -1288,11 +1661,15 @@ class DLPAgent:
             }
 
             # Quarantine metadata (for Windows agent-handled quarantines)
-            if is_quarantine:
+            if is_quarantine and quarantine_path:
                 event_data["quarantined"] = blocked
                 event_data["quarantine_path"] = quarantine_path
                 event_data["quarantine_timestamp"] = datetime.utcnow().isoformat()
-                event_data["quarantine_reason"] = "usb_transfer_policy"
+                event_data["quarantine_reason"] = "file_transfer_policy" if destination_type != "removable_drive" else "usb_transfer_policy"
+            elif action == "quarantine":
+                # Quarantine was attempted but failed
+                event_data["quarantined"] = False
+                event_data["quarantine_path"] = None
 
             if self.active_policy_version:
                 event_data["policy_version"] = self.active_policy_version
@@ -1481,6 +1858,24 @@ class DLPAgent:
             normalized.append({**policy, "config": cfg})
         return normalized
 
+    def _normalize_file_transfer_policies(self, policies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Normalize protected and destination paths for non-USB transfer policies."""
+        normalized = []
+        for policy in policies:
+            cfg = dict(policy.get("config", {}))
+            cfg["protectedPaths"] = self._normalize_path_list(cfg.get("protectedPaths", []))
+            cfg["monitoredDestinations"] = self._normalize_path_list(cfg.get("monitoredDestinations", []))
+            normalized.append({**policy, "config": cfg})
+        return normalized
+
+    def _collect_transfer_paths(self, policies: List[Dict[str, Any]], key: str) -> List[str]:
+        paths: List[str] = []
+        for policy in policies:
+            cfg = policy.get("config", {})
+            paths.extend(cfg.get(key, []) or [])
+        # Deduplicate while preserving order
+        return list(dict.fromkeys(paths))
+
     def _get_quarantine_destination(self, original_path: str) -> str:
         """
         Compute a destination path inside the quarantine folder for a given file.
@@ -1555,9 +1950,52 @@ class DLPAgent:
 
         # Clipboard monitoring and USB device monitoring are long-running threads; gating handled inside loops
 
-        # Removable drive monitoring for USB transfer
-        if self.has_usb_transfer_policies:
+        # Removable drive monitoring for USB transfer AND file_transfer_monitoring
+        # (file_transfer_monitoring policies may have removable drive destinations)
+        if self.has_usb_transfer_policies or self.has_file_transfer_policies:
             self._ensure_transfer_blocking_thread()
+            # Also start monitoring any removable drives that are in file_transfer destination paths
+            if self.has_file_transfer_policies and self.transfer_destination_paths:
+                try:
+                    removable_drives = set(self.get_removable_drives())
+                except Exception as e:
+                    logger.warning(f"Failed to get removable drives list: {e}, will try to detect from paths")
+                    removable_drives = set()
+                
+                for dest_path in self.transfer_destination_paths:
+                    expanded = self._normalize_filesystem_path(dest_path)
+                    # Check if this is a drive root (E:\ or E:)
+                    drive_letter = None
+                    if len(expanded) == 3 and expanded[1] == ":" and expanded.endswith("\\"):
+                        drive_letter = expanded[:-1]  # "E:"
+                    elif len(expanded) == 2 and expanded[1] == ":":
+                        drive_letter = expanded  # "E:"
+                    
+                    # If it looks like a drive root and exists, try to monitor it
+                    # (even if WMI doesn't detect it as removable - some drives aren't detected correctly)
+                    if drive_letter and os.path.exists(drive_letter):
+                        # Check if it's in removable_drives OR if it's a single-letter drive that exists
+                        # (fallback: if WMI detection failed, still try to monitor drive roots)
+                        is_removable = drive_letter in removable_drives
+                        if not is_removable:
+                            # Fallback: if it's a drive root and exists, assume it might be removable
+                            # (better to monitor and check than miss transfers)
+                            logger.info(
+                                "Drive root detected in file_transfer destination (not detected as removable by WMI, but will monitor anyway)",
+                                extra={"drive": drive_letter, "path": dest_path},
+                            )
+                        
+                        # This destination is a drive root - ensure it's monitored
+                        if drive_letter not in self.removable_observers:
+                            logger.info(
+                                "Starting removable drive monitoring for file_transfer destination",
+                                extra={
+                                    "drive": drive_letter,
+                                    "policy_type": "file_transfer_monitoring",
+                                    "detected_as_removable": is_removable,
+                                },
+                            )
+                            self._start_monitoring_removable_drive(drive_letter)
         else:
             # Stop any removable-drive observers and clear state
             for drive, observer in list(self.removable_observers.items()):
@@ -1565,6 +2003,18 @@ class DLPAgent:
                 observer.join()
                 self.removable_observers.pop(drive, None)
             self.removable_drives = set()
+
+        # Monitored destination observers for non-USB file transfers (non-removable destinations)
+        if self.has_file_transfer_policies:
+            # Always restart transfer monitoring to pick up path changes
+            # (similar to how file monitoring works - observers are lightweight)
+            if self.transfer_observers:
+                logger.info("Restarting transfer destination monitoring due to policy changes")
+                self.stop_transfer_monitoring()
+            self.start_transfer_monitoring()
+        else:
+            if self.transfer_observers:
+                self.stop_transfer_monitoring()
 
     def send_event(self, event_data: Dict[str, Any]):
         """Send event to server"""

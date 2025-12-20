@@ -6,6 +6,7 @@
 export type PolicyType = 
   | 'clipboard_monitoring'
   | 'file_system_monitoring'
+  | 'file_transfer_monitoring'
   | 'usb_device_monitoring'
   | 'usb_file_transfer_monitoring'
   | 'google_drive_local_monitoring'
@@ -13,7 +14,8 @@ export type PolicyType =
 
 export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical'
 export type ClipboardAction = 'alert' | 'log'
-export type FileSystemAction = 'alert' | 'block' | 'quarantine' | 'log'
+export type FileSystemAction = 'alert' | 'log'
+export type FileTransferAction = 'block' | 'quarantine' | 'alert'
 export type USBDeviceAction = 'alert' | 'log' | 'block'
 export type USBTransferAction = 'block' | 'quarantine' | 'alert'
 
@@ -35,6 +37,19 @@ export interface FileSystemConfig {
     move: boolean
   }
   action: FileSystemAction
+}
+
+export interface FileTransferConfig {
+  protectedPaths: string[]
+  monitoredDestinations: string[]
+  fileExtensions?: string[]
+  events: {
+    create: boolean
+    modify: boolean
+    delete: boolean
+    move: boolean
+  }
+  action: FileTransferAction
   quarantinePath?: string
 }
 
@@ -81,6 +96,7 @@ export interface GoogleDriveCloudConfig {
 export type PolicyConfig = 
   | ClipboardConfig 
   | FileSystemConfig 
+  | FileTransferConfig
   | USBDeviceConfig 
   | USBTransferConfig 
   | GoogleDriveLocalConfig
@@ -95,6 +111,7 @@ export interface Policy {
   priority: number
   enabled: boolean
   config: PolicyConfig
+  agentId?: string
   agentIds?: string[]
   createdAt: string
   updatedAt: string

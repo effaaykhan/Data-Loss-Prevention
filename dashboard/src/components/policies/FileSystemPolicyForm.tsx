@@ -270,51 +270,6 @@ export default function FileSystemPolicyForm({ config, onChange }: FileSystemPol
             <input
               type="radio"
               name="filesystem-action"
-              value="block"
-              checked={config.action === 'block'}
-              onChange={() => onChange({ ...config, action: 'block', quarantinePath: undefined })}
-              className="w-4 h-4 text-indigo-600"
-            />
-            <div>
-              <div className="text-white font-medium text-sm">Block Operation</div>
-              <div className="text-gray-400 text-xs">Delete file after creation</div>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-600 bg-gray-900/30 cursor-pointer hover:border-gray-500 transition-all">
-            <input
-              type="radio"
-              name="filesystem-action"
-              value="quarantine"
-              checked={config.action === 'quarantine'}
-              onChange={() => onChange({ ...config, action: 'quarantine' })}
-              className="w-4 h-4 text-indigo-600"
-            />
-            <div className="flex-1">
-              <div className="text-white font-medium text-sm">Quarantine</div>
-              <div className="text-gray-400 text-xs">Move file into a quarantine folder instead of deleting</div>
-            </div>
-          </label>
-
-          {config.action === 'quarantine' && (
-            <div className="ml-7 space-y-2">
-              <input
-                type="text"
-                value={config.quarantinePath || ''}
-                onChange={(e) => onChange({ ...config, quarantinePath: e.target.value })}
-                placeholder="e.g., C:\\Quarantine or /quarantine"
-                className="w-full px-3 py-2 bg-gray-900/50 border-2 border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono text-sm"
-              />
-              <p className="text-xs text-gray-400">
-                Required when using quarantine. Choose a path not monitored by this policy to avoid loops.
-              </p>
-            </div>
-          )}
-
-          <label className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-600 bg-gray-900/30 cursor-pointer hover:border-gray-500 transition-all">
-            <input
-              type="radio"
-              name="filesystem-action"
               value="log"
               checked={config.action === 'log'}
               onChange={() => onChange({ ...config, action: 'log', quarantinePath: undefined })}
@@ -322,7 +277,7 @@ export default function FileSystemPolicyForm({ config, onChange }: FileSystemPol
             />
             <div>
               <div className="text-white font-medium text-sm">Log Only</div>
-              <div className="text-gray-400 text-xs">Log the event without taking action</div>
+              <div className="text-gray-400 text-xs">Record events without blocking</div>
             </div>
           </label>
         </div>

@@ -23,8 +23,14 @@ const policyTypes: Array<{
   {
     type: 'file_system_monitoring',
     label: 'File System Monitoring',
-    description: 'Monitor directories for file operations',
+    description: 'Monitor directories for file operations (detect only)',
     icon: FileText
+  },
+  {
+    type: 'file_transfer_monitoring',
+    label: 'File Transfer Monitoring',
+    description: 'Block/quarantine transfers between protected and destination folders',
+    icon: HardDrive
   },
   {
     type: 'usb_device_monitoring',

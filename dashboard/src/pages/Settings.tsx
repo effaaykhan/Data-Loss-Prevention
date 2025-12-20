@@ -3,6 +3,9 @@ import { Settings as SettingsIcon, Server, Database, Bell, Globe } from 'lucide-
 import toast from 'react-hot-toast'
 import { initiateGoogleDriveConnection } from '@/lib/api'
 
+const defaultApiUrl = import.meta.env.VITE_API_URL ?? ''
+const defaultOpenSearchUrl = import.meta.env.VITE_OPENSEARCH_URL ?? 'https://localhost:9200'
+
 export default function Settings() {
   const [isConnectingDrive, setIsConnectingDrive] = useState(false)
 
@@ -48,7 +51,7 @@ export default function Settings() {
               <input
                 type="text"
                 className="input"
-                defaultValue="https://localhost:55000"
+                defaultValue={defaultApiUrl || 'https://localhost:55000/api/v1'}
                 readOnly
               />
               <p className="mt-1 text-xs text-gray-500">
@@ -90,7 +93,7 @@ export default function Settings() {
               <input
                 type="text"
                 className="input"
-                defaultValue="https://localhost:9200"
+                defaultValue={defaultOpenSearchUrl}
                 readOnly
               />
             </div>

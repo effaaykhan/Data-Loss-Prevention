@@ -47,6 +47,16 @@ def test_windows_bundle_includes_supported_policies():
             config={"monitoredPaths": ["C:/Sensitive"], "action": "alert"},
         ),
         make_policy(
+            policy_id="p-transfer",
+            name="Transfer Policy",
+            policy_type="file_transfer_monitoring",
+            config={
+                "protectedPaths": ["C:/Sensitive"],
+                "monitoredDestinations": ["D:/Staging"],
+                "action": "block",
+            },
+        ),
+        make_policy(
             policy_id="p-usb",
             name="USB Policy",
             policy_type="usb_file_transfer_monitoring",
@@ -58,6 +68,7 @@ def test_windows_bundle_includes_supported_policies():
 
     assert bundle["policies"]["clipboard_monitoring"]
     assert bundle["policies"]["file_system_monitoring"]
+    assert bundle["policies"]["file_transfer_monitoring"]
     assert bundle["policies"]["usb_file_transfer_monitoring"]
 
 
@@ -128,6 +139,21 @@ def test_agent_scoped_policy_included_only_for_matching_agent():
     assert "C:/Global" in other_paths
 
 
+def test_agent_scoped_policy_excluded_for_non_matching_agent():
+    transformer = AgentPolicyTransformer()
+    scoped_policy = make_policy(
+        policy_id="p-agent-only",
+        name="Agent Only",
+        policy_type="file_system_monitoring",
+        config={"monitoredPaths": ["C:/Docs"], "action": "alert"},
+        agent_ids=["agent-abc"],
+    )
+
+    bundle = transformer.build_bundle([scoped_policy], platform="windows", agent_id="agent-xyz")
+
+    assert "file_system_monitoring" not in bundle["policies"]
+
+
 def test_version_changes_when_agent_scope_changes():
     transformer = AgentPolicyTransformer()
     policy = make_policy(
@@ -148,15 +174,20 @@ def test_version_changes_when_agent_scope_changes():
 def test_bundle_preserves_quarantine_action_and_path():
     transformer = AgentPolicyTransformer()
     policy = make_policy(
-        policy_id="p-files",
-        name="Files Quarantine Policy",
-        policy_type="file_system_monitoring",
-        config={"monitoredPaths": ["/opt/data"], "action": "quarantine", "quarantinePath": "/quarantine"},
+        policy_id="p-transfer",
+        name="Transfer Quarantine Policy",
+        policy_type="file_transfer_monitoring",
+        config={
+            "protectedPaths": ["/opt/data"],
+            "monitoredDestinations": ["/mnt/staging"],
+            "action": "quarantine",
+            "quarantinePath": "/quarantine",
+        },
     )
 
     bundle = transformer.build_bundle([policy], platform="linux")
 
-    serialized = bundle["policies"]["file_system_monitoring"][0]["config"]
+    serialized = bundle["policies"]["file_transfer_monitoring"][0]["config"]
     assert serialized["action"] == "quarantine"
     assert serialized["quarantinePath"] == "/quarantine"
 

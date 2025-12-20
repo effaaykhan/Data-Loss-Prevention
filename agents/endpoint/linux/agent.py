@@ -28,7 +28,7 @@ from watchdog.events import FileSystemEventHandler, FileSystemEvent
 log_file = os.path.expanduser('~/cybersentinel_agent.log')
 os.makedirs(os.path.dirname(log_file), exist_ok=True)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG to see suppression messages
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file),
@@ -163,6 +163,22 @@ class FileMonitorHandler(FileSystemEventHandler):
         return ext in monitored_exts if monitored_exts else True
 
 
+class TransferDestinationHandler(FileSystemEventHandler):
+    """Handles file events on monitored destination paths (non-USB transfers)"""
+
+    def __init__(self, agent):
+        self.agent = agent
+        super().__init__()
+
+    def on_created(self, event: FileSystemEvent):
+        if not event.is_directory:
+            self.agent.handle_transfer_destination_event(event.src_path)
+
+    def on_modified(self, event: FileSystemEvent):
+        if not event.is_directory:
+            self.agent.handle_transfer_destination_event(event.src_path)
+
+
 class DLPAgent:
     """Main DLP Agent class"""
 
@@ -172,9 +188,14 @@ class DLPAgent:
         self.server_url = self.config.get("server_url")
         self.running = False
         self.observers = []
+        self.monitored_paths_set = set()  # Track which paths we're monitoring to prevent duplicates
         self.policy_bundle = None
         self.policy_file_paths: List[str] = []
+        self.file_transfer_policies: List[Dict[str, Any]] = []
+        self.transfer_protected_paths: List[str] = []
+        self.transfer_destination_paths: List[str] = []
         self.has_file_policies: bool = False
+        self.has_file_transfer_policies: bool = False
         self.allow_events: bool = False
         self.active_policy_version: Optional[str] = None
         self.policy_sync_interval = self.config.get("policy_sync_interval", 60)
@@ -183,6 +204,8 @@ class DLPAgent:
         self.last_policy_sync_status: str = "never"
         self.last_policy_sync_error: Optional[str] = None
         self.file_policies: List[Dict[str, Any]] = []
+        self.transfer_observers: List[Observer] = []
+        self.monitored_transfer_destinations_set = set()  # Track transfer destinations to prevent duplicates
 
         quarantine_cfg = self.config.get("quarantine", {})
         self.quarantine_enabled: bool = quarantine_cfg.get("enabled", False)
@@ -206,7 +229,8 @@ class DLPAgent:
         
         # Deduplication: Track recent events to prevent duplicates
         self.recent_events = {}  # {(file_path, event_type): timestamp}
-        self.dedup_window_seconds = 2  # Ignore duplicate events within 2 seconds
+        self.dedup_window_seconds = 5  # Ignore duplicate events within 5 seconds (increased from 2)
+        self.dedup_lock = threading.Lock()  # Lock for thread-safe deduplication
 
         logger.info(f"Agent initialized: {self.agent_id}")
 
@@ -267,6 +291,12 @@ class DLPAgent:
             observer.stop()
             observer.join()
         logger.info("Agent stopped")
+
+        # Stop transfer observers
+        for observer in self.transfer_observers:
+            observer.stop()
+            observer.join()
+        self.transfer_observers = []
 
     def register_agent(self):
         """Register agent with server"""
@@ -366,9 +396,11 @@ class DLPAgent:
         policies = self.policy_bundle.get("policies", {})
         file_policies = policies.get("file_system_monitoring", [])
         usb_transfer_policies = policies.get("usb_file_transfer_monitoring", [])
+        file_transfer_policies = policies.get("file_transfer_monitoring", [])
 
         # Persist file policies for action handling
         self.file_policies = file_policies
+        self.file_transfer_policies = self._normalize_file_transfer_policies(file_transfer_policies)
 
         new_paths: List[str] = []
         for policy in file_policies + usb_transfer_policies:
@@ -378,7 +410,12 @@ class DLPAgent:
 
         # Policy presence flags
         self.has_file_policies = bool(file_policies or usb_transfer_policies)
-        self.allow_events = self.has_file_policies
+        self.has_file_transfer_policies = bool(file_transfer_policies)
+        self.allow_events = self.has_file_policies or self.has_file_transfer_policies
+
+        # Normalize protected/destination paths for transfer policies
+        self.transfer_protected_paths = self._collect_transfer_paths(self.file_transfer_policies, key="protectedPaths")
+        self.transfer_destination_paths = self._collect_transfer_paths(self.file_transfer_policies, key="monitoredDestinations")
 
         # Reconcile monitoring based on current policies
         self._reconcile_monitors()
@@ -402,18 +439,40 @@ class DLPAgent:
         expanded = os.path.expanduser(expanded)
         return expanded
 
+    def _normalize_file_transfer_policies(self, policies: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized = []
+        for policy in policies:
+            cfg = dict(policy.get("config", {}))
+            cfg["protectedPaths"] = [self._expand_path(p) for p in cfg.get("protectedPaths", []) if p]
+            cfg["monitoredDestinations"] = [self._expand_path(p) for p in cfg.get("monitoredDestinations", []) if p]
+            normalized.append({**policy, "config": cfg})
+        return normalized
+
+    def _collect_transfer_paths(self, policies: List[Dict[str, Any]], key: str) -> List[str]:
+        paths: List[str] = []
+        for policy in policies:
+            cfg = policy.get("config", {}) or {}
+            paths.extend(cfg.get(key, []) or [])
+        return list(dict.fromkeys(paths))
+
     def start_file_monitoring(self):
         """Start monitoring file system"""
         monitored_paths = self._resolve_monitored_paths()
 
         for path in monitored_paths:
-            expanded_path = self._expand_path(path)
+            expanded_path = os.path.normpath(os.path.abspath(self._expand_path(path)))
+            # Skip if already monitoring this exact path
+            if expanded_path in self.monitored_paths_set:
+                logger.debug(f"Already monitoring path: {expanded_path}, skipping")
+                continue
+                
             if os.path.exists(expanded_path):
                 event_handler = FileMonitorHandler(self)
                 observer = Observer()
                 observer.schedule(event_handler, expanded_path, recursive=True)
                 observer.start()
                 self.observers.append(observer)
+                self.monitored_paths_set.add(expanded_path)
                 logger.info(f"Monitoring path: {expanded_path}")
             else:
                 logger.warning(f"Path does not exist: {expanded_path}")
@@ -424,16 +483,77 @@ class DLPAgent:
             observer.stop()
             observer.join()
         self.observers = []
+        self.monitored_paths_set.clear()
         logger.info("File monitoring stopped")
+
+    def start_transfer_monitoring(self):
+        """Start monitoring destination paths for non-USB file transfers."""
+        if not self.has_file_transfer_policies:
+            return
+        if not self.transfer_destination_paths:
+            logger.warning("No monitored destinations configured for transfer policies")
+            return
+
+        for path in self.transfer_destination_paths:
+            expanded_path = os.path.normpath(os.path.abspath(self._expand_path(path)))
+            # Skip if already monitoring this exact path
+            if expanded_path in self.monitored_transfer_destinations_set:
+                logger.debug(f"Already monitoring transfer destination: {expanded_path}, skipping")
+                continue
+                
+            if os.path.exists(expanded_path):
+                handler = TransferDestinationHandler(self)
+                observer = Observer()
+                observer.schedule(handler, expanded_path, recursive=True)
+                observer.start()
+                self.transfer_observers.append(observer)
+                self.monitored_transfer_destinations_set.add(expanded_path)
+                logger.info(f"Monitoring transfer destination: {expanded_path}")
+            else:
+                logger.warning(f"Destination path does not exist: {expanded_path}")
+
+    def stop_transfer_monitoring(self):
+        """Stop all transfer destination observers."""
+        for observer in self.transfer_observers:
+            observer.stop()
+            observer.join()
+        self.transfer_observers = []
+        self.monitored_transfer_destinations_set.clear()
+        logger.info("Transfer destination monitoring stopped")
 
     def _reconcile_monitors(self):
         """Start or stop monitors based on active policies."""
         if self.has_file_policies:
-            if not self.observers:
+            # Check if we need to restart monitoring (paths may have changed)
+            monitored_paths = self._resolve_monitored_paths()
+            expanded_new = {os.path.normpath(os.path.abspath(self._expand_path(p))) for p in monitored_paths}
+            
+            # If paths don't match, restart monitoring
+            if self.monitored_paths_set != expanded_new:
+                if self.monitored_paths_set:
+                    logger.info(f"Monitored paths changed (old: {self.monitored_paths_set}, new: {expanded_new}), restarting file monitoring")
+                    self.stop_file_monitoring()
+                self.start_file_monitoring()
+            elif not self.observers:
                 self.start_file_monitoring()
         else:
             if self.observers:
                 self.stop_file_monitoring()
+
+        if self.has_file_transfer_policies:
+            # Check if transfer destinations changed
+            expanded_new = {os.path.normpath(os.path.abspath(self._expand_path(p))) for p in self.transfer_destination_paths}
+            
+            if self.monitored_transfer_destinations_set != expanded_new:
+                if self.monitored_transfer_destinations_set:
+                    logger.info(f"Transfer destinations changed (old: {self.monitored_transfer_destinations_set}, new: {expanded_new}), restarting transfer monitoring")
+                    self.stop_transfer_monitoring()
+                self.start_transfer_monitoring()
+            elif not self.transfer_observers:
+                self.start_transfer_monitoring()
+        else:
+            if self.transfer_observers:
+                self.stop_transfer_monitoring()
 
     def _is_in_quarantine(self, file_path: str) -> bool:
         """Check if the file resides in the quarantine folder to avoid loops."""
@@ -477,9 +597,34 @@ class DLPAgent:
             os.remove(file_path)
             logger.warning(f"Blocked and deleted file: {file_path}")
             return True
+        except FileNotFoundError:
+            logger.info(f"File already removed before block: {file_path}")
+            return True
         except Exception as exc:
             logger.error(f"Failed to delete file during block: {exc}", exc_info=True)
             return False
+
+    def _find_source_file_in_dirs(self, search_dirs: List[str], file_hash: str, file_size: int, file_name: str) -> Optional[str]:
+        """Find matching file by hash/size/name within provided directories."""
+        if not file_hash or not search_dirs:
+            return None
+        for root_dir in search_dirs:
+            try:
+                for root, dirs, files in os.walk(root_dir):
+                    if file_name in files:
+                        candidate_path = os.path.join(root, file_name)
+                        try:
+                            candidate_size = os.path.getsize(candidate_path)
+                            if candidate_size != file_size:
+                                continue
+                        except Exception:
+                            continue
+                        candidate_hash = self._calculate_file_hash(candidate_path)
+                        if candidate_hash and candidate_hash == file_hash:
+                            return candidate_path
+            except Exception:
+                continue
+        return None
 
     def _match_file_policy(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Find the first file system policy whose monitoredPaths include the file."""
@@ -492,6 +637,19 @@ class DLPAgent:
                     return policy
         return None
 
+    def _match_file_transfer_policy(self, source_path: str, dest_path: str) -> Optional[Dict[str, Any]]:
+        """Find matching non-USB transfer policy for a given source/destination pair."""
+        if not self.file_transfer_policies:
+            return None
+        for policy in self.file_transfer_policies:
+            cfg = policy.get("config", {}) or {}
+            protected_paths = cfg.get("protectedPaths", [])
+            dest_paths = cfg.get("monitoredDestinations", [])
+            if any(source_path.startswith(self._expand_path(p)) for p in protected_paths) and \
+               any(dest_path.startswith(self._expand_path(d)) for d in dest_paths):
+                return policy
+        return None
+
     def handle_file_event(self, event_type: str, file_path: str):
         """Handle file system event"""
         try:
@@ -501,13 +659,46 @@ class DLPAgent:
                 logger.debug(f"Skipping event inside quarantine folder: {file_path}")
                 return
             # Deduplication: Check if we recently sent an event for this file/type
-            dedup_key = (file_path, event_type)
+            # Use normalized path for deduplication to handle path variations
+            normalized_path = os.path.normpath(os.path.abspath(file_path))
             now = time.time()
-            if dedup_key in self.recent_events:
-                last_sent = self.recent_events[dedup_key]
-                if now - last_sent < self.dedup_window_seconds:
-                    logger.debug(f"Skipping duplicate event: {event_type} - {file_path} (last sent {now - last_sent:.2f}s ago)")
-                    return
+            dedup_key = (normalized_path, event_type)
+            
+            # Thread-safe deduplication check
+            with self.dedup_lock:
+                # Check for exact duplicate (same path + same event type)
+                if dedup_key in self.recent_events:
+                    last_sent = self.recent_events[dedup_key]
+                    if now - last_sent < self.dedup_window_seconds:
+                        logger.debug(f"Skipping duplicate event: {event_type} - {file_path} (last sent {now - last_sent:.2f}s ago)")
+                        return
+                
+                # Special case: Suppress file_modified events that occur immediately after file_created
+                # (watchdog fires both when creating a file with echo/write operations)
+                if event_type == "file_modified":
+                    created_key = (normalized_path, "file_created")
+                    if created_key in self.recent_events:
+                        time_since_created = now - self.recent_events[created_key]
+                        if time_since_created < 1.0:  # Suppress modified events within 1 second of creation
+                            logger.info(f"Suppressing file_modified event immediately after file_created: {file_path} ({time_since_created:.3f}s)")
+                            return
+                    else:
+                        logger.debug(f"file_modified event for {file_path} - no recent file_created found")
+                
+                # For file_created events, record IMMEDIATELY to prevent race conditions with file_modified
+                # This ensures file_modified checks will see the file_created entry
+                if event_type == "file_created":
+                    self.recent_events[dedup_key] = now
+                    logger.debug(f"Recorded file_created event for deduplication: {file_path} at {now}")
+                
+                # Clean up old entries (keep only recent 100 entries)
+                if len(self.recent_events) > 100:
+                    cutoff = now - self.dedup_window_seconds
+                    self.recent_events = {k: v for k, v in self.recent_events.items() if v > cutoff}
+
+            if not os.path.exists(file_path):
+                logger.debug(f"File missing at event time; skipping: {file_path}")
+                return
             
             # Get file info
             file_size = os.path.getsize(file_path)
@@ -535,15 +726,13 @@ class DLPAgent:
             quarantine_path: Optional[str] = None
             quarantine_timestamp: Optional[str] = None
 
-            if policy_action == "block":
-                if self.block_file_transfer(file_path):
-                    event_action = "blocked"
-            elif policy_action == "quarantine":
-                target_folder = policy_config.get("quarantinePath") or self.quarantine_folder
-                quarantine_path = self.quarantine_file(file_path, target_folder)
-                if quarantine_path:
-                    event_action = "quarantined"
-                    quarantine_timestamp = datetime.utcnow().isoformat() + "Z"
+            # File system monitoring is detection-only: ignore block/quarantine
+            if policy_action not in {"alert", "log"}:
+                policy_action = "log"
+
+            # Do not apply destructive actions on delete events (avoids removing source during moves)
+            if event_type == "file_deleted":
+                event_action = "logged"
             elif policy_action == "alert":
                 event_action = "alert"
 
@@ -583,17 +772,106 @@ class DLPAgent:
             if self.active_policy_version:
                 event_data["policy_version"] = self.active_policy_version
 
-            self.send_event(event_data)
+            # Record non-created events now (file_created was already recorded above to prevent race conditions)
+            if event_type != "file_created":
+                with self.dedup_lock:
+                    self.recent_events[dedup_key] = now
+                    # Clean up old entries
+                    if len(self.recent_events) > 100:
+                        cutoff = now - self.dedup_window_seconds
+                        self.recent_events = {k: v for k, v in self.recent_events.items() if v > cutoff}
             
-            # Record this event to prevent duplicates
-            self.recent_events[dedup_key] = now
-            # Clean up old entries (keep only recent 100 entries)
-            if len(self.recent_events) > 100:
-                cutoff = now - self.dedup_window_seconds
-                self.recent_events = {k: v for k, v in self.recent_events.items() if v > cutoff}
+            # Now send the event
+            self.send_event(event_data)
 
         except Exception as e:
             logger.error(f"Error handling file event: {e}")
+
+    def handle_transfer_destination_event(self, dest_path: str):
+        """Handle file events on monitored destination paths (non-USB transfers)."""
+        try:
+            if not self.allow_events or not self.has_file_transfer_policies:
+                return
+            if not os.path.exists(dest_path):
+                return
+
+            file_size = os.path.getsize(dest_path)
+            file_name = Path(dest_path).name
+            time.sleep(0.2)
+            file_hash = self._calculate_file_hash(dest_path)
+            if not file_hash:
+                return
+
+            source_file = self._find_source_file_in_dirs(self.transfer_protected_paths, file_hash, file_size, file_name)
+            if not source_file:
+                return
+
+            policy = self._match_file_transfer_policy(source_file, dest_path)
+            if not policy:
+                return
+
+            cfg = policy.get("config", {}) or {}
+            policy_action = cfg.get("action", "block").lower()
+            quarantine_path: Optional[str] = None
+            event_action = "logged"
+            blocked = False
+
+            if policy_action == "quarantine":
+                target_folder = cfg.get("quarantinePath") or self.quarantine_folder
+                quarantine_path = self.quarantine_file(dest_path, target_folder)
+                blocked = bool(quarantine_path)
+                event_action = "quarantined" if blocked else "logged"
+            elif policy_action == "alert":
+                blocked = False
+                event_action = "alert"
+            else:
+                blocked = self.block_file_transfer(dest_path)
+                event_action = "blocked" if blocked else "logged"
+
+            # Get current user
+            import pwd
+            current_user = pwd.getpwuid(os.getuid()).pw_name
+
+            event_data = {
+                "event_id": str(uuid.uuid4()),
+                "event_type": "file",
+                "event_subtype": "transfer_blocked" if blocked else "transfer_attempt",
+                "agent_id": self.agent_id,
+                "source_type": "agent",
+                "user_email": f"{current_user}@{socket.gethostname()}",
+                "username": current_user,
+                "description": f"File transfer {'blocked' if blocked else 'detected'}: {Path(source_file).name} -> {dest_path}",
+                "severity": "critical" if blocked else "high",
+                "action": event_action,
+                "file_path": source_file,
+                "file_name": Path(source_file).name,
+                "file_size": file_size,
+                "file_hash": file_hash,
+                "classification": self._classify_content(self._read_file_content(source_file, max_bytes=100000)),
+                "source_path": source_file,
+                "destination": dest_path,
+                "destination_type": "endpoint_destination",
+                "transfer_type": "file_transfer",
+                "blocked": blocked,
+                "timestamp": datetime.utcnow().isoformat(),
+                "policy_id": policy.get("id") if policy else None,
+                "policy_name": policy.get("name") if policy else None,
+                "policy_action": policy_action,
+            }
+
+            if quarantine_path:
+                event_data["quarantined"] = blocked
+                event_data["quarantine_path"] = quarantine_path
+                event_data["quarantine_timestamp"] = datetime.utcnow().isoformat() + "Z"
+                event_data["quarantine_reason"] = "file_transfer_policy"
+
+            if self.active_policy_version:
+                event_data["policy_version"] = self.active_policy_version
+
+            self.send_event(event_data)
+
+        except Exception as e:
+            logger.error(f"Error handling transfer destination event: {e}")
 
     def _classify_content(self, content: str) -> Dict[str, Any]:
         """Classify content for sensitive data"""

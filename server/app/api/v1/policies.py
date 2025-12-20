@@ -20,6 +20,7 @@ from app.services.policy_service import PolicyService
 from app.utils.policy_transformer import transform_frontend_config_to_backend
 from app.models.user import User
 from app.models.google_drive import GoogleDriveProtectedFolder, GoogleDriveConnection
+from app.models.agent import Agent
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -63,10 +64,84 @@ class Policy(BaseModel):
     conditions: Optional[List[PolicyCondition]] = []
     actions: Optional[List[PolicyAction]] = []
     compliance_tags: List[str] = []
+    agent_id: Optional[str] = None  # Convenience single agent selector
     agent_ids: Optional[List[str]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     created_by: Optional[str] = None
+
+
+class PolicyUpsert(BaseModel):
+    name: str
+    description: str
+    enabled: bool = True
+    priority: int = 100
+    type: Optional[str] = None
+    severity: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    conditions: Optional[List[PolicyCondition]] = []
+    actions: Optional[List[PolicyAction]] = []
+    compliance_tags: List[str] = []
+    agent_id: Optional[str] = None
+    agent_ids: Optional[List[str]] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+async def _normalize_agent_scope(
+    db: AsyncSession,
+    agent_id: Optional[str],
+    agent_ids: Optional[List[str]],
+) -> List[str]:
+    """
+    Normalize single-agent scoping for policies.
+
+    Behaviour:
+    - Prefer explicit ``agent_id``; otherwise use ``agent_ids``.
+    - Reject more than one explicit agent (UI only supports single-agent scope).
+    - If no agent is supplied, return an empty list → policy applies to all agents.
+    - When an agent id is supplied, validate that it exists in the MongoDB
+      ``agents`` collection (the source of truth for agents).
+
+    Prior to this change, this function queried the SQLAlchemy ``Agent`` model,
+    which expects a relational ``agents`` table. In this deployment that table
+    does not exist, so any scoped policy creation triggered:
+
+        sqlalchemy.exc.ProgrammingError: relation \"agents\" does not exist
+
+    which surfaced as a 500 from ``POST /api/v1/policies`` and caused the UI
+    to report \"failed to create policy\" whenever a Target Agent was selected.
+    """
+    # Normalise input into a single agent id (or none)
+    if agent_id:
+        normalized = [agent_id]
+    else:
+        normalized = [a for a in (agent_ids or []) if a]
+
+    if len(normalized) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only one agent_id is allowed per policy",
+        )
+
+    # No scoping → apply to all agents
+    if not normalized:
+        return []
+
+    target_id = str(normalized[0])
+
+    # Validate existence against MongoDB agents collection (authoritative store)
+    mongo = get_mongodb()
+    agents_collection = mongo["agents"]
+    agent_doc = await agents_collection.find_one({"agent_id": target_id})
+    if not agent_doc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"agent_id '{target_id}' not found",
+        )
+
+    return [target_id]
 
 
 # Helper to sync Google Drive folders
@@ -235,7 +310,7 @@ async def get_policy(
 
 @router.post("/", response_model=Policy, status_code=status.HTTP_201_CREATED)
 async def create_policy(
-    policy: Policy,
+    policy: PolicyUpsert,
     current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -260,6 +335,8 @@ async def create_policy(
         actions_dict = {action.type: action.parameters for action in (policy.actions or [])}
 
     try:
+        agent_ids = await _normalize_agent_scope(db, policy.agent_id, policy.agent_ids)
+
         created_policy = await policy_service.create_policy(
             name=policy.name,
             description=policy.description,
@@ -272,7 +349,7 @@ async def create_policy(
             type=policy.type,
             severity=policy.severity,
             config=policy.config,
-            agent_ids=policy.agent_ids or [],
+            agent_ids=agent_ids,
         )
 
         # Sync Google Drive Folders if applicable
@@ -312,7 +389,7 @@ async def create_policy(
 @router.put("/{policy_id}", response_model=Policy)
 async def update_policy(
     policy_id: str,
-    policy: Policy,
+    policy: PolicyUpsert,
     current_user: User = Depends(require_role("analyst")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -334,6 +411,8 @@ async def update_policy(
         actions_dict = {action.type: action.parameters for action in (policy.actions or [])}
 
     try:
+        agent_ids = await _normalize_agent_scope(db, policy.agent_id, policy.agent_ids)
+
         updated_policy = await policy_service.update_policy(
             policy_id=policy_id,
             name=policy.name,
@@ -346,7 +425,7 @@ async def update_policy(
             type=policy.type,
             severity=policy.severity,
             config=policy.config,
-            agent_ids=policy.agent_ids or [],
+            agent_ids=agent_ids,
         )
 
         if not updated_policy:

@@ -10,7 +10,8 @@ import {
   ClipboardConfig, 
   FileSystemConfig, 
   USBDeviceConfig, 
-  USBTransferConfig 
+  USBTransferConfig,
+  FileTransferConfig
 } from '@/types/policy'
 import { Clipboard, FileText, Usb, HardDrive, Cloud } from 'lucide-react'
 
@@ -23,6 +24,8 @@ export const getPolicyTypeIcon = (type: PolicyType) => {
       return Clipboard
     case 'file_system_monitoring':
       return FileText
+    case 'file_transfer_monitoring':
+      return HardDrive
     case 'usb_device_monitoring':
       return Usb
     case 'usb_file_transfer_monitoring':
@@ -49,6 +52,8 @@ export const getPolicyTypeLabel = (type: PolicyType): string => {
       return 'USB Device Monitoring'
     case 'usb_file_transfer_monitoring':
       return 'USB File Transfer Monitoring'
+    case 'file_transfer_monitoring':
+      return 'File Transfer Monitoring'
     case 'google_drive_local_monitoring':
       return 'Google Drive (Local)'
     case 'google_drive_cloud_monitoring':
@@ -94,6 +99,17 @@ export const formatPolicyConfig = (policy: Policy): string => {
         ? `${c.monitoredPaths.length} path(s)`
         : 'No paths'
       return `Paths: ${paths} | Events: ${events} | Action: ${c.action}`
+    }
+
+    case 'file_transfer_monitoring': {
+      const c = config as FileTransferConfig
+      const protectedCount = c.protectedPaths.length || 0
+      const destCount = c.monitoredDestinations.length || 0
+      const events = Object.entries(c.events)
+        .filter(([_, enabled]) => enabled)
+        .map(([event]) => event.charAt(0).toUpperCase() + event.slice(1))
+        .join(', ')
+      return `Protected: ${protectedCount} path(s) | Destinations: ${destCount} | Events: ${events || 'None'} | Action: ${c.action}`
     }
     
     case 'usb_device_monitoring': {
@@ -208,6 +224,23 @@ export const validatePolicy = (policy: Partial<Policy>): { valid: boolean; error
         if (!Object.values(c.events).some(v => v)) {
           errors.push('At least one event type must be selected')
         }
+        if (c.action !== 'alert' && c.action !== 'log') {
+          errors.push('File system monitoring is detection-only (alert/log)')
+        }
+        break
+      }
+
+      case 'file_transfer_monitoring': {
+        const c = policy.config as FileTransferConfig
+        if (c.protectedPaths.length === 0) {
+          errors.push('At least one protected path is required')
+        }
+        if (c.monitoredDestinations.length === 0) {
+          errors.push('At least one destination path is required')
+        }
+        if (!Object.values(c.events).some(v => v)) {
+          errors.push('At least one event type must be selected')
+        }
         if (c.action === 'quarantine' && !c.quarantinePath?.trim()) {
           errors.push('Quarantine path is required when action is quarantine')
         }
@@ -233,6 +266,12 @@ export const validatePolicy = (policy: Partial<Policy>): { valid: boolean; error
         break
       }
     }
+  }
+
+  // Agent scoping: allow at most one agent_id
+  const scoped = policy.agentIds || []
+  if (scoped.length > 1) {
+    errors.push('Only one agent can be selected')
   }
   
   return {

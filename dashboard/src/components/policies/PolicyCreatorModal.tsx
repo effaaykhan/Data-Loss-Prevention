@@ -8,6 +8,7 @@ import {
   FileSystemConfig, 
   USBDeviceConfig, 
   USBTransferConfig,
+  FileTransferConfig,
   GoogleDriveLocalConfig,
   GoogleDriveCloudConfig
 } from '@/types/policy'
@@ -15,10 +16,12 @@ import { validatePolicy } from '@/utils/policyUtils'
 import PolicyTypeSelector from './PolicyTypeSelector'
 import ClipboardPolicyForm from './ClipboardPolicyForm'
 import FileSystemPolicyForm from './FileSystemPolicyForm'
+import FileTransferPolicyForm from './FileTransferPolicyForm'
 import USBDevicePolicyForm from './USBDevicePolicyForm'
 import USBTransferPolicyForm from './USBTransferPolicyForm'
 import GoogleDriveLocalPolicyForm from './GoogleDriveLocalPolicyForm'
 import GoogleDriveCloudPolicyForm from './GoogleDriveCloudPolicyForm'
+import { getAgents, Agent } from '@/lib/api'
 import { X, ChevronLeft, ChevronRight, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -29,7 +32,7 @@ interface PolicyCreatorModalProps {
   editingPolicy?: Policy | null
 }
 
-const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig => {
+const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | FileTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig => {
   switch (type) {
     case 'clipboard_monitoring':
       return {
@@ -51,6 +54,20 @@ const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig 
         },
         action: 'alert'
       } as FileSystemConfig
+
+    case 'file_transfer_monitoring':
+      return {
+        protectedPaths: [],
+        monitoredDestinations: [],
+        fileExtensions: [],
+        events: {
+          create: true,
+          modify: true,
+          delete: false,
+          move: true
+        },
+        action: 'block'
+      } as FileTransferConfig
     
     case 'usb_device_monitoring':
       return {
@@ -106,8 +123,9 @@ export default function PolicyCreatorModal({
   )
   const [priority, setPriority] = useState(editingPolicy?.priority || 100)
   const [enabled, setEnabled] = useState(editingPolicy?.enabled ?? true)
-  const [agentIdsInput, setAgentIdsInput] = useState(editingPolicy?.agentIds?.join(', ') || '')
-  const [config, setConfig] = useState<ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig>(
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [agentId, setAgentId] = useState(editingPolicy?.agentIds?.[0] || '')
+  const [config, setConfig] = useState<ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | FileTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig>(
     editingPolicy?.config || (policyType ? getDefaultConfig(policyType) : getDefaultConfig('clipboard_monitoring'))
   )
 
@@ -122,7 +140,7 @@ export default function PolicyCreatorModal({
         setSeverity(editingPolicy.severity)
         setPriority(editingPolicy.priority)
         setEnabled(editingPolicy.enabled)
-        setAgentIdsInput(editingPolicy.agentIds?.join(', ') || '')
+        setAgentId(editingPolicy.agentIds?.[0] || '')
         setConfig(editingPolicy.config)
       } else {
         // Reset for new policy
@@ -133,7 +151,7 @@ export default function PolicyCreatorModal({
         setSeverity('medium')
         setPriority(100)
         setEnabled(true)
-        setAgentIdsInput('')
+        setAgentId('')
         setConfig(getDefaultConfig('clipboard_monitoring'))
       }
     }
@@ -145,6 +163,14 @@ export default function PolicyCreatorModal({
       setConfig(getDefaultConfig(policyType))
     }
   }, [policyType])
+
+  // Load agents for single-select
+  useEffect(() => {
+    if (!isOpen) return
+    getAgents()
+      .then((data) => setAgents(Array.isArray(data) ? data : data?.items || []))
+      .catch(() => setAgents([]))
+  }, [isOpen])
 
   const handleClose = () => {
     setStep(1)
@@ -188,10 +214,7 @@ export default function PolicyCreatorModal({
       priority,
       enabled,
       config,
-      agentIds: agentIdsInput
-        .split(',')
-        .map(id => id.trim())
-        .filter(id => id.length > 0) || undefined,
+      agentIds: agentId ? [agentId] : [],
     }
 
     const validation = validatePolicy(policy)
@@ -330,16 +353,21 @@ export default function PolicyCreatorModal({
                   </div>
                 {/* Agent Scope */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Target Agents (optional)</label>
-                  <input
-                    type="text"
-                    value={agentIdsInput}
-                    onChange={(e) => setAgentIdsInput(e.target.value)}
-                    placeholder="Comma-separated agent IDs; leave empty for all agents"
-                    className="w-full px-4 py-3 bg-gray-900/50 border-2 border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 transition-all text-sm"
-                  />
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Target Agent (optional)</label>
+                  <select
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-900/50 border-2 border-gray-600 rounded-xl text-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/20 transition-all text-sm"
+                  >
+                    <option value="">All agents</option>
+                    {agents.map((agent) => (
+                      <option key={agent.agent_id} value={agent.agent_id}>
+                        {agent.name} ({agent.agent_id})
+                      </option>
+                    ))}
+                  </select>
                   <p className="text-xs text-gray-400">
-                    Example: <code>windows-agent-001, 1f77b503-f62d-43f7-afc5-1d226a41ece4</code>
+                    Leave empty to apply to all agents. Select one agent to scope this policy.
                   </p>
                 </div>
                   <div className="flex items-center gap-2">
@@ -370,6 +398,13 @@ export default function PolicyCreatorModal({
                 {policyType === 'file_system_monitoring' && (
                   <FileSystemPolicyForm
                     config={config as FileSystemConfig}
+                    onChange={(newConfig) => setConfig(newConfig)}
+                  />
+                )}
+
+                {policyType === 'file_transfer_monitoring' && (
+                  <FileTransferPolicyForm
+                    config={config as FileTransferConfig}
                     onChange={(newConfig) => setConfig(newConfig)}
                   />
                 )}

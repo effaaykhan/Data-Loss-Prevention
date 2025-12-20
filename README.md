@@ -407,6 +407,28 @@ curl http://your-server.com:55000/health
 
 ---
 
+### Endpoint Policy Coverage
+
+#### Windows
+
+- Clipboard Monitoring: Captures text clipboard when clipboard policies exist; classifies predefined labels and sends alert-only events (no block).
+- File System Monitoring: Watches policy paths (including Google Drive local mirrors) for create/modify/move/delete; detection-only, no block/quarantine enforcement.
+- File Transfer Monitoring: Blocks or quarantines copies from protected paths to monitored destinations (non-USB).
+- USB Device Monitoring: Logs USB connect events; does not block or eject devices.
+- USB File Transfer Monitoring: Detects copies from monitored paths to removable drives; can block (delete destination) or quarantine (move into configured quarantine folder, default `C:\Quarantine`).
+- Google Drive Local Monitoring: Observes `G:\My Drive\...` paths from policy bundle; detection-only, no blocking.
+
+#### Linux
+
+- File System Monitoring: Real-time watchers on policy `monitoredPaths` for create/modify/move/delete; supports `log`/`alert`, `quarantine` (moves to configured folder), and `block` (deletes file) actions.
+- File Transfer Monitoring: Blocks or quarantines copies from protected paths to monitored destinations on endpoints (non-USB).
+- Clipboard Monitoring: Not implemented on Linux.
+- USB Device Monitoring: Not implemented on Linux.
+- USB File Transfer Monitoring: Not implemented (no removable-drive watchers on Linux).
+- Google Drive Local Monitoring: Not implemented on Linux.
+
+---
+
 ## Configuration
 
 ### Server Configuration

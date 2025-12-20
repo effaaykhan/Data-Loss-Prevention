@@ -16,6 +16,7 @@ from app.models.policy import Policy
 POLICY_PLATFORM_SUPPORT: Dict[str, List[str]] = {
     "clipboard_monitoring": ["windows"],
     "file_system_monitoring": ["windows", "linux"],
+    "file_transfer_monitoring": ["windows", "linux"],
     "usb_device_monitoring": ["windows"],
     "usb_file_transfer_monitoring": ["windows"],
     "google_drive_local_monitoring": ["windows"],
@@ -24,6 +25,7 @@ POLICY_PLATFORM_SUPPORT: Dict[str, List[str]] = {
 POLICY_CAPABILITY_MAP: Dict[str, str] = {
     "clipboard_monitoring": "clipboard_monitoring",
     "file_system_monitoring": "file_monitoring",
+    "file_transfer_monitoring": "file_monitoring",
     "usb_device_monitoring": "usb_monitoring",
     "usb_file_transfer_monitoring": "usb_monitoring",
     "google_drive_local_monitoring": "file_monitoring",
