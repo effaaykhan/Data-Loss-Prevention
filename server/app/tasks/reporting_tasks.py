@@ -53,6 +53,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.google_drive_polling_tasks.poll_google_drive_activity",
         "schedule": crontab(minute="*/5"),  # Run every 5 minutes
     },
+    "event-cleanup": {
+        "task": "app.tasks.event_cleanup_tasks.cleanup_old_events",
+        "schedule": crontab(hour=2, minute=0),  # 2:00 AM UTC daily
+    },
 }
 
 

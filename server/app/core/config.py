@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     OPENSEARCH_INDEX_PREFIX: str = Field(default="cybersentinel")
     OPENSEARCH_RETENTION_DAYS: int = Field(default=90)
 
+    # Event Retention Configuration
+    EVENT_RETENTION_DAYS: int = Field(default=180)
+
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = Field(default=True)
     RATE_LIMIT_REQUESTS: int = Field(default=100)

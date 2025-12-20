@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { AlertTriangle, Usb, Clipboard, Cloud, Ban, Bell, Eye, Filter, Download, Search, Loader2, X, Shield, ArrowRight, File, HardDrive, ChevronDown, ChevronUp, Trash2, RefreshCcw } from 'lucide-react'
-import { getEvents as fetchEvents, getEventStats, clearAllEvents, triggerGoogleDrivePoll } from '@/lib/api'
+import { getEvents as fetchEvents, getEventStats, clearAllEvents, triggerGoogleDrivePoll, getPolicies } from '@/lib/api'
 import { formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -670,18 +670,32 @@ export default function EventsPage() {
   const handleManualRefresh = async () => {
     setIsRefreshing(true)
     try {
-      const response = await triggerGoogleDrivePoll()
-      if (response?.status === 'queued') {
-        toast.success('Google Drive polling queued. Updating events…')
-      } else if (response?.status === 'skipped') {
-        toast.success(response?.message || 'No Google Drive policies configured. Events refreshed.')
+      // Always refresh events from database first
+      await Promise.all([refetch(), refetchStats()])
+      
+      // Check if Google Drive policies exist
+      const policies = await getPolicies({ enabled_only: true })
+      const hasGoogleDrivePolicies = policies.some(
+        (p: any) => p.type === 'google_drive_cloud_monitoring' && p.enabled
+      )
+      
+      if (hasGoogleDrivePolicies) {
+        // Trigger Google Drive polling if policies exist
+        const response = await triggerGoogleDrivePoll()
+        if (response?.status === 'queued') {
+          toast.success('Events refreshed. Google Drive polling queued.')
+        } else if (response?.status === 'skipped') {
+          toast.success('Events refreshed.')
+        } else {
+          toast.success('Events refreshed.')
+        }
       } else {
-        toast.success(response?.message || 'Manual refresh triggered.')
+        // No Google Drive policies, just show refresh message
+        toast.success('Events refreshed.')
       }
     } catch (error: any) {
-      toast.error(error?.response?.data?.detail || 'Failed to trigger manual refresh')
+      toast.error(error?.response?.data?.detail || 'Failed to refresh events')
     } finally {
-      await Promise.all([refetch(), refetchStats()])
       setIsRefreshing(false)
     }
   }
