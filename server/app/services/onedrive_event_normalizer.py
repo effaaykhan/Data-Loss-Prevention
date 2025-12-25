@@ -61,6 +61,11 @@ def normalize_delta_item(
     
     # Extract user email (from createdBy or lastModifiedBy)
     user_email = _extract_user_email(delta_item)
+    
+    # Extract ETag and version for modification tracking
+    etag = delta_item.get("eTag")
+    file_info = delta_item.get("file", {})
+    version = file_info.get("version") if file_info else None
 
     event_id = _build_event_id(
         item_id=delta_item.get("id"),
@@ -103,6 +108,8 @@ def normalize_delta_item(
         "onedrive_event_id": delta_item.get("id"),
         "change_type": normalized_change_type,  # Use improved change type
         "description": description,  # Add descriptive message
+        "etag": etag,  # ETag for modification detection
+        "version": version,  # File version (if available)
         "details": delta_item,
     }
 
@@ -165,12 +172,15 @@ def _extract_user_email(delta_item: Dict[str, Any]) -> str:
 
 def _extract_file_metadata(delta_item: Dict[str, Any]) -> Dict[str, Any]:
     """Extract file metadata from Graph API delta item."""
+    file_info = delta_item.get("file", {})
     return {
         "file_name": delta_item.get("name"),
         "file_id": delta_item.get("id"),
         "file_size": delta_item.get("size"),
-        "mime_type": delta_item.get("file", {}).get("mimeType") if delta_item.get("file") else None,
+        "mime_type": file_info.get("mimeType") if file_info else None,
         "owner": _extract_owner(delta_item),
+        "etag": delta_item.get("eTag"),
+        "version": file_info.get("version") if file_info else None,
     }
 
 

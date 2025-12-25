@@ -9,12 +9,14 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
+import json
 import structlog
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_mongodb
+from app.core.cache import get_cache
 from app.models.onedrive import OneDriveConnection, OneDriveProtectedFolder
 from app.services.event_processor import EventProcessor, get_event_processor
 from app.services.onedrive_event_normalizer import (
@@ -42,6 +44,12 @@ class OneDrivePollingService:
         self.oauth_service = OneDriveOAuthService(db)
         self.event_processor = event_processor or get_event_processor()
         self.events_collection = events_collection or get_mongodb()["dlp_events"]
+        # Redis client for file state storage (optional, gracefully handles if unavailable)
+        try:
+            self.redis_client = get_cache()
+        except RuntimeError:
+            logger.warning("Redis not available, file state tracking disabled")
+            self.redis_client = None
 
     async def poll_all_connections(self) -> int:
         """
@@ -244,11 +252,95 @@ class OneDrivePollingService:
                 if change_type.lower() not in ["created", "updated", "deleted", "moved", "renamed", "copied"]:
                     continue
 
-                # Normalize the delta item to DLP event format
-                normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                file_id = item.get("id")
+                normalized_event: Optional[Dict[str, Any]] = None
+
+                # Handle different change types with hybrid approach
+                if change_type.lower() == "deleted":
+                    # Deletions are reliable from delta - use as-is
+                    normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                    # Remove file state from Redis on deletion
+                    if file_id:
+                        try:
+                            if self.redis_client:
+                                key = f"onedrive:file_state:{connection.id}:{file_id}"
+                                await self.redis_client.delete(key)
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to delete file state from Redis",
+                                file_id=file_id,
+                                error=str(e),
+                            )
+                elif change_type.lower() == "created":
+                    # Check if file_id exists in Redis - if so, it's likely a modification misreported as creation
+                    if file_id:
+                        stored_state = await self._get_file_state(str(connection.id), file_id)
+                        if stored_state:
+                            # File exists in Redis - this is a suspected modification
+                            logger.debug(
+                                "Suspected modification (delta reports 'created' but file exists in Redis)",
+                                file_id=file_id,
+                                connection_id=str(connection.id),
+                            )
+                            # Detect modification using metadata comparison
+                            normalized_event = await self._detect_file_modification(
+                                item, access_token, connection, folder
+                            )
+                            if normalized_event:
+                                # Modification detected and normalized
+                                pass
+                            else:
+                                # Fallback: treat as creation (might be a re-upload)
+                                normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                        else:
+                            # Genuine creation - use delta as-is
+                            normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                            # Store file state after normalization
+                            if file_id and normalized_event:
+                                file_meta = item.get("file", {})
+                                await self._store_file_state(
+                                    str(connection.id),
+                                    file_id,
+                                    etag=item.get("eTag"),
+                                    last_modified=item.get("lastModifiedDateTime"),
+                                    version=file_meta.get("version") if file_meta else None,
+                                )
+                    else:
+                        # No file_id - use delta as-is
+                        normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                elif change_type.lower() == "updated":
+                    # Verify modification using metadata comparison
+                    if file_id:
+                        normalized_event = await self._detect_file_modification(
+                            item, access_token, connection, folder
+                        )
+                        if not normalized_event:
+                            # No modification detected or error - use delta as-is
+                            normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                    else:
+                        # No file_id - use delta as-is
+                        normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                else:
+                    # Moved, renamed, copied - use delta as-is
+                    normalized_event = normalize_delta_item(item, change_type, connection, folder)
+                
+                if not normalized_event:
+                    continue
                 
                 if normalized_event.get("event_subtype") not in TRACKED_EVENT_SUBTYPES:
                     continue
+
+                # Store file state for created/updated files (if not already stored)
+                if normalized_event.get("event_subtype") in ["file_created", "file_modified"]:
+                    file_id = normalized_event.get("file_id")
+                    if file_id and not await self._get_file_state(str(connection.id), file_id):
+                        # Store state if not already stored
+                        await self._store_file_state(
+                            str(connection.id),
+                            file_id,
+                            etag=item.get("eTag"),
+                            last_modified=normalized_event.get("timestamp"),
+                        )
 
                 normalized.append(normalized_event)
                 event_ts = self._parse_timestamp(normalized_event.get("timestamp"))
@@ -388,6 +480,237 @@ class OneDrivePollingService:
         # No delta token for children endpoint - return None
         return normalized, latest_timestamp, None
 
+    async def _get_file_state(
+        self, connection_id: str, file_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve stored file state from Redis.
+        
+        Returns:
+            Dict with keys: etag, last_modified, version, or None if not found/unavailable
+        """
+        if not self.redis_client:
+            return None
+        
+        try:
+            key = f"onedrive:file_state:{connection_id}:{file_id}"
+            value = await self.redis_client.get(key)
+            if value:
+                return json.loads(value)
+            return None
+        except Exception as e:
+            logger.warning(
+                "Failed to get file state from Redis",
+                connection_id=connection_id,
+                file_id=file_id,
+                error=str(e),
+            )
+            return None
+
+    async def _store_file_state(
+        self,
+        connection_id: str,
+        file_id: str,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> bool:
+        """
+        Store file state in Redis.
+        
+        Args:
+            connection_id: OneDrive connection ID
+            file_id: File ID from Graph API
+            etag: File ETag (changes when content changes)
+            last_modified: Last modified timestamp
+            version: File version (if available)
+        
+        Returns:
+            True if stored successfully, False otherwise
+        """
+        if not self.redis_client:
+            return False
+        
+        try:
+            key = f"onedrive:file_state:{connection_id}:{file_id}"
+            state = {
+                "etag": etag,
+                "last_modified": last_modified,
+                "version": version,
+            }
+            # Store with 90 day TTL (7776000 seconds)
+            await self.redis_client.setex(key, 7776000, json.dumps(state))
+            return True
+        except Exception as e:
+            logger.warning(
+                "Failed to store file state in Redis",
+                connection_id=connection_id,
+                file_id=file_id,
+                error=str(e),
+            )
+            return False
+
+    async def _fetch_file_metadata(
+        self, access_token: str, file_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch current file metadata from Graph API.
+        
+        Args:
+            access_token: OAuth access token
+            file_id: File ID from Graph API
+        
+        Returns:
+            Dict with file metadata (eTag, lastModifiedDateTime, version, etc.) or None on error
+        """
+        try:
+            endpoint = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}"
+            params = {
+                "$select": "id,name,eTag,lastModifiedDateTime,fileSystemInfo,createdDateTime"
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # File not found - treat as deletion
+                logger.debug("File not found in Graph API", file_id=file_id)
+            else:
+                logger.warning(
+                    "Failed to fetch file metadata",
+                    file_id=file_id,
+                    status_code=e.response.status_code,
+                    error=e.response.text[:200],
+                )
+            return None
+        except Exception as e:
+            logger.warning(
+                "Error fetching file metadata",
+                file_id=file_id,
+                error=str(e),
+            )
+            return None
+
+    async def _detect_file_modification(
+        self,
+        delta_item: Dict[str, Any],
+        access_token: str,
+        connection: OneDriveConnection,
+        folder: OneDriveProtectedFolder,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Detect if a file modification occurred by comparing current state with stored state.
+        
+        Args:
+            delta_item: Delta item from Graph API
+            access_token: OAuth access token
+            connection: OneDriveConnection instance
+            folder: OneDriveProtectedFolder instance
+        
+        Returns:
+            Normalized event dict with event_subtype="file_modified" if modification detected,
+            None otherwise
+        """
+        file_id = delta_item.get("id")
+        if not file_id:
+            return None
+        
+        # Fetch current file metadata
+        current_metadata = await self._fetch_file_metadata(access_token, file_id)
+        if not current_metadata:
+            # File not found - might be a deletion, let delta handle it
+            return None
+        
+        current_etag = current_metadata.get("eTag")
+        current_last_modified = current_metadata.get("lastModifiedDateTime")
+        
+        # Get stored state
+        stored_state = await self._get_file_state(str(connection.id), file_id)
+        
+        if stored_state:
+            # File was seen before - check if ETag changed
+            stored_etag = stored_state.get("etag")
+            if current_etag and stored_etag and current_etag != stored_etag:
+                # ETag changed - real modification
+                logger.debug(
+                    "File modification detected via ETag change",
+                    file_id=file_id,
+                    old_etag=stored_etag,
+                    new_etag=current_etag,
+                )
+                # Update delta item with current metadata for accurate normalization
+                delta_item["eTag"] = current_etag
+                delta_item["lastModifiedDateTime"] = current_last_modified
+                normalized_event = normalize_delta_item(
+                    delta_item, "updated", connection, folder
+                )
+                # Ensure it's marked as modification
+                normalized_event["event_subtype"] = "file_modified"
+                normalized_event["change_type"] = "updated"
+                # Store updated state
+                await self._store_file_state(
+                    str(connection.id),
+                    file_id,
+                    etag=current_etag,
+                    last_modified=current_last_modified,
+                )
+                return normalized_event
+            elif current_last_modified and stored_state.get("last_modified"):
+                # ETag same but timestamp changed - metadata-only change, still log as modification
+                stored_last_modified = stored_state.get("last_modified")
+                if current_last_modified != stored_last_modified:
+                    logger.debug(
+                        "File metadata change detected",
+                        file_id=file_id,
+                        old_timestamp=stored_last_modified,
+                        new_timestamp=current_last_modified,
+                    )
+                    delta_item["eTag"] = current_etag
+                    delta_item["lastModifiedDateTime"] = current_last_modified
+                    normalized_event = normalize_delta_item(
+                        delta_item, "updated", connection, folder
+                    )
+                    normalized_event["event_subtype"] = "file_modified"
+                    normalized_event["change_type"] = "updated"
+                    await self._store_file_state(
+                        str(connection.id),
+                        file_id,
+                        etag=current_etag,
+                        last_modified=current_last_modified,
+                    )
+                    return normalized_event
+        else:
+            # File not in Redis - first time seeing it, but delta says "updated"
+            # This might be a modification that happened before we started tracking
+            # Store state and treat as modification
+            logger.debug(
+                "File not in Redis but delta reports update - treating as modification",
+                file_id=file_id,
+            )
+            await self._store_file_state(
+                str(connection.id),
+                file_id,
+                etag=current_etag,
+                last_modified=current_last_modified,
+            )
+            delta_item["eTag"] = current_etag
+            delta_item["lastModifiedDateTime"] = current_last_modified
+            normalized_event = normalize_delta_item(
+                delta_item, "updated", connection, folder
+            )
+            normalized_event["event_subtype"] = "file_modified"
+            normalized_event["change_type"] = "updated"
+            return normalized_event
+        
+        return None
+
     async def _persist_event(self, normalized_event: Dict[str, Any]) -> None:
         """
         Run event through EventProcessor and persist it to MongoDB.
@@ -514,6 +837,8 @@ class OneDrivePollingService:
             "details": {
                 "onedrive_event_id": event.get("onedrive_event_id"),
                 "change_type": event.get("change_type"),
+                "etag": event.get("etag"),
+                "version": event.get("version"),
                 "raw_delta_item": event.get("details"),
             },
             "matched_policies": processed.get("matched_policies", []),
