@@ -171,3 +171,4 @@ class OneDriveProtectedFolder(Base):
         self.delta_token = token
         self.updated_at = datetime.utcnow()
 
+

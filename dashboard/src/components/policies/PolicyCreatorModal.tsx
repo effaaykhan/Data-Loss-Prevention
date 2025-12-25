@@ -10,7 +10,8 @@ import {
   USBTransferConfig,
   FileTransferConfig,
   GoogleDriveLocalConfig,
-  GoogleDriveCloudConfig
+  GoogleDriveCloudConfig,
+  OneDriveCloudConfig
 } from '@/types/policy'
 import { validatePolicy } from '@/utils/policyUtils'
 import PolicyTypeSelector from './PolicyTypeSelector'
@@ -21,6 +22,7 @@ import USBDevicePolicyForm from './USBDevicePolicyForm'
 import USBTransferPolicyForm from './USBTransferPolicyForm'
 import GoogleDriveLocalPolicyForm from './GoogleDriveLocalPolicyForm'
 import GoogleDriveCloudPolicyForm from './GoogleDriveCloudPolicyForm'
+import OneDriveCloudPolicyForm from './OneDriveCloudPolicyForm'
 import { getAgents, Agent } from '@/lib/api'
 import { X, ChevronLeft, ChevronRight, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -32,7 +34,7 @@ interface PolicyCreatorModalProps {
   editingPolicy?: Policy | null
 }
 
-const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | FileTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig => {
+const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig | USBDeviceConfig | USBTransferConfig | FileTransferConfig | GoogleDriveLocalConfig | GoogleDriveCloudConfig | OneDriveCloudConfig => {
   switch (type) {
     case 'clipboard_monitoring':
       return {
@@ -105,6 +107,14 @@ const getDefaultConfig = (type: PolicyType): ClipboardConfig | FileSystemConfig 
         pollingInterval: 10,
         action: 'log'
       } as GoogleDriveCloudConfig
+      
+    case 'onedrive_cloud_monitoring':
+      return {
+        connectionId: '',
+        protectedFolders: [],
+        pollingInterval: 10,
+        action: 'log'
+      } as OneDriveCloudConfig
   }
 }
 
@@ -433,6 +443,13 @@ export default function PolicyCreatorModal({
                 {policyType === 'google_drive_cloud_monitoring' && (
                   <GoogleDriveCloudPolicyForm
                     config={config as GoogleDriveCloudConfig}
+                    onChange={(newConfig) => setConfig(newConfig)}
+                  />
+                )}
+
+                {policyType === 'onedrive_cloud_monitoring' && (
+                  <OneDriveCloudPolicyForm
+                    config={config as OneDriveCloudConfig}
                     onChange={(newConfig) => setConfig(newConfig)}
                   />
                 )}

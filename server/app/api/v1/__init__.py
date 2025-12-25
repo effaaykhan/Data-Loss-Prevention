@@ -18,6 +18,7 @@ from app.api.v1 import (
     export,
     siem,
     google_drive,
+    onedrive,
 )
 
 api_router = APIRouter()
@@ -43,3 +44,4 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytic
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
 api_router.include_router(siem.router, prefix="/siem", tags=["SIEM"])
 api_router.include_router(google_drive.router, tags=["Google Drive"])
+api_router.include_router(onedrive.router, tags=["OneDrive"])

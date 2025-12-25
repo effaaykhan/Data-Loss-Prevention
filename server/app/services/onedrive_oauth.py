@@ -31,10 +31,13 @@ class OneDriveOAuthService:
     """
 
     AUTHORITY_BASE = "https://login.microsoftonline.com"
+    # Use Graph data scopes only; MSAL will automatically add OpenID scopes as needed.
+    # Including reserved scopes like "offline_access" directly can cause
+    # "API does not accept frozenset({'profile', 'openid', 'offline_access'})"
+    # validation errors in some environments.
     SCOPES: Sequence[str] = (
         "Files.Read.All",
         "User.Read",
-        "offline_access",
     )
     STATE_CACHE_PREFIX = "onedrive:oauth:state:"
     STATE_TTL_SECONDS = 600
@@ -72,7 +75,10 @@ class OneDriveOAuthService:
                 detail="OneDrive OAuth redirect URI missing. Set ONEDRIVE_REDIRECT_URI",
             )
 
-        tenant_id = settings.ONEDRIVE_TENANT_ID or "common"
+        # Use "consumers" for personal Microsoft accounts to avoid SPO license errors
+        # "common" allows both work/school and personal, but personal accounts may hit SPO license issues
+        # "consumers" specifically targets personal accounts
+        tenant_id = settings.ONEDRIVE_TENANT_ID or "consumers"
         authority = f"{self.AUTHORITY_BASE}/{tenant_id}"
 
         self._client_config_cache = {
@@ -130,7 +136,7 @@ class OneDriveOAuthService:
         state = secrets.token_urlsafe(32)
         await self._store_state(state, {"user_id": str(user_id)})
 
-        # Build authorization URL
+        # Build authorization URL with full Graph + offline_access scopes
         auth_url = app.get_authorization_request_url(
             scopes=list(self.SCOPES),
             redirect_uri=config["redirect_uri"],
@@ -347,11 +353,11 @@ class OneDriveOAuthService:
         else:
             endpoint = f"https://graph.microsoft.com/v1.0/me/drive/items/{parent_id}/children"
 
-        # Filter for folders only
+        # Basic params for listing children. Some consumer accounts/endpoints
+        # are picky about $filter/$orderby combinations, so we fetch a page
+        # and filter client-side to avoid 400 errors from Graph.
         params = {
-            "$filter": "folder ne null",
             "$top": 50,
-            "$orderby": "name",
         }
         if page_token:
             params["$skiptoken"] = page_token
@@ -363,7 +369,35 @@ class OneDriveOAuthService:
                     headers={"Authorization": f"Bearer {access_token}"},
                     params=params,
                 )
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    # Log and surface a cleaner error up to the API layer
+                    error_body = exc.response.text
+                    logger.warning(
+                        "OneDrive list folders failed",
+                        status_code=exc.response.status_code,
+                        url=str(exc.request.url),
+                        body=error_body,
+                    )
+                    
+                    # Check for specific Graph API errors
+                    try:
+                        error_json = exc.response.json()
+                        error_msg = error_json.get("error", {}).get("message", "")
+                        if "SPO license" in error_msg or "does not have a SPO license" in error_msg:
+                            raise HTTPException(
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="Your Microsoft account does not have OneDrive/SharePoint Online access. Personal OneDrive accounts may have limitations. Please ensure your account has OneDrive enabled.",
+                            ) from exc
+                    except (ValueError, KeyError):
+                        pass  # Fall through to generic error
+                    
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Failed to list OneDrive folders: {error_body[:200]}",
+                    ) from exc
+
                 data = response.json()
 
                 # Transform to match Google Drive format for frontend compatibility

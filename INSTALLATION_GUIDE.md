@@ -825,6 +825,245 @@ docker-compose restart manager celery-worker celery-beat
 
 ---
 
+## OneDrive Integration Setup
+
+### Prerequisites
+
+- Microsoft account (Personal or Microsoft 365)
+- Azure Portal access (free account works)
+- Microsoft Graph API access (included with Microsoft account)
+
+**Note:** File download detection requires a Microsoft 365 subscription. Personal OneDrive accounts can monitor file creation, modification, deletion, and movement, but not downloads.
+
+### Step 1: Create Azure App Registration
+
+1. Go to [Azure Portal](https://portal.azure.com/)
+2. Sign in with your Microsoft account
+3. Navigate to **Azure Active Directory** (or **Microsoft Entra ID**)
+4. Click **App registrations** in the left sidebar
+5. Click **+ New registration**
+
+### Step 2: Configure App Registration
+
+1. **Name**: Enter "CyberSentinel DLP" (or your preferred name)
+2. **Supported account types**: 
+   - Select **"Accounts in any organizational directory and personal Microsoft accounts"** for maximum compatibility
+   - Or **"Personal Microsoft accounts only"** if only personal accounts will be used
+3. **Redirect URI**:
+   - Platform: **Web**
+   - URI: `http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback`
+   - Replace `YOUR_SERVER_IP` with your server IP address
+4. Click **Register**
+
+### Step 3: Configure API Permissions
+
+1. In your app registration, click **API permissions** in the left sidebar
+2. Click **+ Add a permission**
+3. Select **Microsoft Graph**
+4. Choose **Delegated permissions**
+5. Add the following permissions:
+   - `Files.Read` - Read user files
+   - `Files.Read.All` - Read all files that the user can access
+   - `Sites.Read.All` - Read items in all site collections (if needed)
+   - `User.Read` - Sign in and read user profile
+6. Click **Add permissions**
+7. **Important**: Click **Grant admin consent** (if you have admin rights) or users will need to consent during OAuth flow
+
+### Step 4: Create Client Secret
+
+1. In your app registration, click **Certificates & secrets** in the left sidebar
+2. Click **+ New client secret**
+3. **Description**: Enter "CyberSentinel DLP Secret" (or any description)
+4. **Expires**: Choose expiration (recommended: 24 months or Never for testing)
+5. Click **Add**
+6. **IMPORTANT**: Copy the **Value** immediately (it won't be shown again)
+   - Save it securely - you'll need it for the `.env` file
+
+### Step 5: Get Application (Client) ID
+
+1. In your app registration, go to **Overview**
+2. Copy the **Application (client) ID** - this is your `ONEDRIVE_CLIENT_ID`
+3. Copy the **Directory (tenant) ID** - this is your `ONEDRIVE_TENANT_ID` (usually `common` or your tenant ID)
+
+### Step 6: Configure Environment Variables
+
+Add to `.env` file:
+
+```bash
+# OneDrive OAuth
+ONEDRIVE_CLIENT_ID=your-client-id-here
+ONEDRIVE_CLIENT_SECRET=your-client-secret-value-here
+ONEDRIVE_TENANT_ID=common
+ONEDRIVE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback
+```
+
+**Replace:**
+- `YOUR_SERVER_IP` with your server IP address (e.g., `192.168.1.100` or `localhost` for local testing)
+- `your-client-id-here` with your Application (client) ID from Step 5
+- `your-client-secret-value-here` with the client secret Value from Step 4
+- `ONEDRIVE_TENANT_ID`:
+  - Use `common` for personal Microsoft accounts and organizational accounts
+  - Use your specific tenant ID if you only want organizational accounts
+  - Use `consumers` for personal Microsoft accounts only
+  - Use `organizations` for organizational accounts only
+
+**Example:**
+```bash
+# OneDrive OAuth
+ONEDRIVE_CLIENT_ID=12345678-abcd-1234-abcd-123456789abc
+ONEDRIVE_CLIENT_SECRET=abc~DEF123ghi456JKL789mno012PQR345stu678
+ONEDRIVE_TENANT_ID=common
+ONEDRIVE_REDIRECT_URI=http://192.168.1.100:55000/api/v1/onedrive/callback
+```
+
+### Step 7: Restart Services
+
+```bash
+docker-compose restart manager celery-worker celery-beat
+```
+
+### Step 8: Create OneDrive Policy
+
+1. Open dashboard: `http://YOUR_SERVER_IP:3000`
+2. Navigate to **Policies** page
+3. Click **"Create Policy"**
+4. Select **"OneDrive (Cloud)"** policy type
+5. Click **"Connect Account"** button
+6. Complete OAuth flow:
+   - A popup window will open for Microsoft authentication
+   - Sign in with your Microsoft account
+   - Grant permissions to CyberSentinel DLP
+   - Authorize access to your OneDrive files
+   - The popup will close automatically after successful authentication
+7. Configure policy:
+   - Select protected folders using the folder browser
+   - Name, description, severity, priority
+   - Set polling interval (default: 10 minutes)
+   - Review selected protected folders
+   - Save policy
+
+### Step 9: Verify Polling
+
+1. Create or modify a file in a protected OneDrive folder
+2. Wait up to 5 minutes (or trigger manual poll via API)
+3. Check Events page for new OneDrive event
+4. Event should show:
+   - Source: `onedrive_cloud`
+   - Event type: `file`
+   - Event subtype: `file_created`, `file_modified`, `file_deleted`, or `file_moved`
+   - File path: OneDrive folder path
+   - Timestamp: Actual OneDrive activity timestamp
+
+### Baseline Management
+
+**What is a baseline?**
+- A timestamp stored per protected folder indicating when monitoring started
+- Only events after the baseline are fetched (prevents historical data re-ingestion)
+- Baseline is automatically set to `datetime.utcnow()` when folder is added to policy
+- Delta tokens are used for efficient incremental sync
+
+**Reset Baseline:**
+1. Go to Policies page
+2. Edit OneDrive Cloud policy
+3. Use "Reset Selected Baseline" or "Reset Connection Baseline" buttons
+4. This will start monitoring from the current time forward
+5. Delta tokens will be reset, causing a full sync on next poll
+
+**View Baseline:**
+- Policy form shows "Monitoring since" date for each connection
+- Individual folder baselines shown in protected folders list
+
+### Limitations
+
+**File Download Detection:**
+- **Not available** for personal OneDrive accounts
+- Requires Microsoft 365 subscription and Audit Logs API access
+- Current implementation focuses on file operations (create, modify, delete, move) via Graph API delta queries
+
+**Supported Operations:**
+- ✅ File creation
+- ✅ File modification
+- ✅ File deletion
+- ✅ File movement/renaming
+- ❌ File downloads (requires M365 subscription)
+
+### Troubleshooting OneDrive Integration
+
+**OAuth flow fails:**
+- Verify `ONEDRIVE_CLIENT_ID` and `ONEDRIVE_CLIENT_SECRET` in `.env`
+- Check redirect URI matches Azure app registration configuration exactly
+- Ensure redirect URI uses `http://` (not `https://`) if testing locally
+- Verify tenant ID is correct (`common` for most cases)
+- Check browser console for OAuth errors
+
+**"AADSTS50011: Redirect URI mismatch" error:**
+- Ensure redirect URI in `.env` exactly matches Azure app registration
+- Check for trailing slashes or protocol mismatches
+- Verify port number is correct (default: 55000)
+
+**"AADSTS700016: Application not found" error:**
+- Verify `ONEDRIVE_CLIENT_ID` is correct
+- Check tenant ID matches your account type
+- Ensure app registration exists in the correct Azure AD tenant
+
+**No events appearing:**
+- Check Celery worker logs: `docker-compose logs celery-worker | grep -i "onedrive"`
+- Verify protected folders are configured in policy
+- Check baseline timestamps (may need to reset if too old)
+- Verify delta tokens are being stored (check database)
+- Check Graph API rate limits (shouldn't be an issue for normal usage)
+
+**Duplicate events:**
+- Baseline system and delta tokens should prevent this
+- If duplicates appear, reset baseline for affected folders
+- Check event IDs are deterministic (should not change between polls)
+- Verify delta tokens are being properly stored and used
+
+**Polling not running:**
+- Verify Celery Beat is running: `docker-compose ps celery-beat`
+- Check Celery Beat logs: `docker-compose logs celery-beat`
+- Verify schedule in `server/app/tasks/reporting_tasks.py` (default: every 5 minutes)
+- Check for errors in OneDrive polling task logs
+
+**Token refresh failures:**
+- Verify client secret hasn't expired
+- Check refresh token is being stored correctly
+- Ensure MSAL library is properly configured
+- Check network connectivity to Microsoft identity endpoints
+
+**Graph API errors:**
+- Verify API permissions are granted (check Azure Portal)
+- Ensure admin consent is granted if required
+- Check for rate limiting (429 errors)
+- Verify folder IDs are correct
+
+### Manual Testing
+
+**Test OAuth flow:**
+```bash
+# Get auth URL
+curl -X POST http://localhost:55000/api/v1/onedrive/connect \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Should return auth_url and state
+```
+
+**Test folder listing:**
+```bash
+# List folders for a connection
+curl http://localhost:55000/api/v1/onedrive/connections/CONNECTION_ID/folders \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Trigger manual poll:**
+```bash
+# Manually trigger OneDrive polling
+curl -X POST http://localhost:55000/api/v1/onedrive/poll \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
 ## Configuration
 
 ### Dashboard Configuration
@@ -847,6 +1086,10 @@ docker-compose restart manager celery-worker celery-beat
    - `GOOGLE_CLIENT_ID`: Google OAuth Client ID (for Google Drive integration)
    - `GOOGLE_CLIENT_SECRET`: Google OAuth Client Secret (for Google Drive integration)
    - `GOOGLE_REDIRECT_URI`: OAuth redirect URI (e.g., `http://YOUR_SERVER_IP:55000/api/v1/google-drive/callback`)
+   - `ONEDRIVE_CLIENT_ID`: Microsoft Azure App (client) ID (for OneDrive integration)
+   - `ONEDRIVE_CLIENT_SECRET`: Microsoft Azure Client Secret (for OneDrive integration)
+   - `ONEDRIVE_TENANT_ID`: Azure AD Tenant ID (usually `common` for personal and organizational accounts)
+   - `ONEDRIVE_REDIRECT_URI`: OAuth redirect URI (e.g., `http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback`)
 
 **Manual Configuration (docker-compose.yml):**
 

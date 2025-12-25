@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     ONEDRIVE_CLIENT_ID: Optional[str] = Field(default=None)
     ONEDRIVE_CLIENT_SECRET: Optional[str] = Field(default=None)
     ONEDRIVE_REDIRECT_URI: Optional[str] = Field(default=None)
-    ONEDRIVE_TENANT_ID: Optional[str] = Field(default="common")  # "common" for personal accounts
+    ONEDRIVE_TENANT_ID: Optional[str] = Field(default="consumers")  # "consumers" for personal accounts, "common" for both, or tenant ID for org accounts
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

@@ -20,6 +20,7 @@ from app.services.policy_service import PolicyService
 from app.utils.policy_transformer import transform_frontend_config_to_backend
 from app.models.user import User
 from app.models.google_drive import GoogleDriveProtectedFolder, GoogleDriveConnection
+from app.models.onedrive import OneDriveProtectedFolder, OneDriveConnection
 from app.models.agent import Agent
 
 logger = structlog.get_logger()
@@ -226,6 +227,87 @@ async def sync_google_drive_folders(db: AsyncSession, config: Dict[str, Any]):
         await db.rollback()
 
 
+async def sync_onedrive_folders(db: AsyncSession, config: Dict[str, Any]) -> None:
+    """
+    Synchronize protected folders from OneDrive policy config to database.
+    """
+    print(f"DEBUG: Starting sync_onedrive_folders with config={config}")
+    
+    connection_id_str = config.get("connectionId")
+    if not connection_id_str:
+        print("DEBUG: Sync skipped: Missing connectionId")
+        return
+
+    try:
+        connection_id = UUID(connection_id_str)
+    except ValueError:
+        print(f"DEBUG: Invalid connection ID: {connection_id_str}")
+        return
+
+    # Check if connection exists
+    conn = await db.get(OneDriveConnection, connection_id)
+    if not conn:
+        print(f"DEBUG: OneDrive connection not found: {connection_id}")
+        return
+        
+    print(f"DEBUG: Found OneDrive connection: {connection_id}")
+
+    # Get folders from config
+    config_folders = config.get("protectedFolders", [])
+    print(f"DEBUG: Processing {len(config_folders)} protected folders from config")
+    
+    # Current folders in DB for this connection
+    stmt = select(OneDriveProtectedFolder).where(
+        OneDriveProtectedFolder.connection_id == connection_id
+    )
+    result = await db.execute(stmt)
+    existing_folders = result.scalars().all()
+    existing_folder_ids = {f.folder_id: f for f in existing_folders}
+    
+    print(f"DEBUG: Found {len(existing_folders)} existing folders in DB")
+
+    # Upsert folders
+    for folder_data in config_folders:
+        f_id = folder_data.get("id")
+        f_name = folder_data.get("name")
+        f_path = folder_data.get("path")
+        
+        if not f_id:
+            print("DEBUG: Skipping folder with no ID")
+            continue
+            
+        if f_id in existing_folder_ids:
+            # Update if needed
+            existing = existing_folder_ids[f_id]
+            print(f"DEBUG: Updating existing folder: {f_id} - {f_name}")
+            if existing.folder_name != f_name or existing.folder_path != f_path:
+                existing.folder_name = f_name
+                existing.folder_path = f_path
+                # Mark as updated
+                existing.updated_at = datetime.utcnow()
+            if existing.last_seen_timestamp is None:
+                existing.last_seen_timestamp = datetime.utcnow()
+        else:
+            # Create new
+            print(f"DEBUG: Creating new folder: {f_id} - {f_name}")
+            baseline = datetime.utcnow()
+            new_folder = OneDriveProtectedFolder(
+                connection_id=connection_id,
+                folder_id=f_id,
+                folder_name=f_name,
+                folder_path=f_path,
+                last_seen_timestamp=baseline,
+            )
+            db.add(new_folder)
+            
+    try:
+        await db.commit()
+        print("DEBUG: Database commit successful for OneDrive folders")
+    except Exception as e:
+        print(f"DEBUG: Failed to commit OneDrive folders: {e}")
+        await db.rollback()
+
+
 @router.get("/", response_model=List[Policy])
 async def get_policies(
     skip: int = Query(0, ge=0),
@@ -355,6 +437,10 @@ async def create_policy(
         # Sync Google Drive Folders if applicable
         if policy.type == "google_drive_cloud_monitoring" and policy.config:
             await sync_google_drive_folders(db, policy.config)
+        
+        # Sync OneDrive Folders if applicable
+        if policy.type == "onedrive_cloud_monitoring" and policy.config:
+            await sync_onedrive_folders(db, policy.config)
 
         logger.info(
             "Policy created",
@@ -434,6 +520,10 @@ async def update_policy(
         # Sync Google Drive Folders if applicable
         if policy.type == "google_drive_cloud_monitoring" and policy.config:
             await sync_google_drive_folders(db, policy.config)
+        
+        # Sync OneDrive Folders if applicable
+        if policy.type == "onedrive_cloud_monitoring" and policy.config:
+            await sync_onedrive_folders(db, policy.config)
 
         logger.info(
             "Policy updated",
