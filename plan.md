@@ -144,11 +144,35 @@ ONEDRIVE_TENANT_ID=common
 ## Event Types Detected
 
 - ✅ `file_created` - New file uploaded/created
-- ✅ `file_modified` - File content changed
+- ✅ `file_modified` - File content changed (with hybrid detection using Redis + ETag comparison)
 - ✅ `file_deleted` - File removed
 - ✅ `file_moved` - File moved/renamed
 - ✅ `file_copied` - File copied (if detectable)
 - ❌ `file_downloaded` - NOT available (limitation)
+
+## Hybrid Modification Detection (December 25, 2025)
+
+**Problem:** Microsoft Graph API delta queries sometimes report file modifications as "created" + "deleted" events instead of a single "updated" event.
+
+**Solution:** Hybrid approach implemented:
+- **Delta API for Deletions & Creations:** Uses delta API as-is (reliable)
+- **Metadata Comparison for Modifications:** 
+  - Stores file state (ETag, version, lastModifiedDateTime) in Redis
+  - When delta reports "updated" or suspected modification, verifies by comparing current ETag with stored state
+  - Accurately detects real file content modifications vs. metadata-only changes
+  - Prevents false create+delete pairs when users modify file content
+
+**Implementation:**
+- Redis file state storage: `onedrive:file_state:{connection_id}:{file_id}` (90-day TTL)
+- `_get_file_state()` and `_store_file_state()` methods for Redis operations
+- `_fetch_file_metadata()` method to get current file ETag/version from Graph API
+- `_detect_file_modification()` method to verify modifications via ETag comparison
+- Enhanced delta processing to detect suspected modifications (created but file_id exists in Redis)
+- Graceful fallback to delta-only mode if Redis is unavailable
+
+**Files Modified:**
+- `server/app/services/onedrive_polling.py` - Added Redis helpers, metadata fetching, modification detection
+- `server/app/services/onedrive_event_normalizer.py` - Added ETag/version extraction
 
 ## Estimated Effort
 

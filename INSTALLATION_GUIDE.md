@@ -982,10 +982,19 @@ docker-compose restart manager celery-worker celery-beat
 
 **Supported Operations:**
 - ✅ File creation
-- ✅ File modification
+- ✅ File modification (with hybrid detection - uses Redis + ETag comparison)
 - ✅ File deletion
 - ✅ File movement/renaming
 - ❌ File downloads (requires M365 subscription)
+
+**Hybrid Modification Detection:**
+- Uses Microsoft Graph API delta queries for reliable file creations and deletions
+- For file modifications, uses hybrid approach:
+  - Stores file state (ETag, version, lastModifiedDateTime) in Redis
+  - When delta reports "updated" or suspected modification, verifies by comparing current ETag with stored state
+  - Accurately detects real file content modifications vs. metadata-only changes
+  - Prevents false create+delete pairs when users modify file content
+- Gracefully falls back to delta-only mode if Redis is unavailable
 
 ### Troubleshooting OneDrive Integration
 

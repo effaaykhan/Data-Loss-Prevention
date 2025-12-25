@@ -597,7 +597,154 @@ docker-compose logs celery-worker | grep -i error
 
 ---
 
-## Step 11: Cleanup (After Testing)
+## Step 11: Test OneDrive Integration
+
+### 11.1 Prerequisites
+- Azure AD app registration with Microsoft Graph API permissions
+- OAuth 2.0 credentials configured (see `INSTALLATION_GUIDE.md`)
+- Environment variables set in `.env`:
+  ```bash
+  ONEDRIVE_CLIENT_ID=your-client-id
+  ONEDRIVE_CLIENT_SECRET=your-client-secret
+  ONEDRIVE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback
+  ONEDRIVE_TENANT_ID=common
+  ```
+- Redis must be running (for hybrid modification detection)
+
+### 11.2 Create OneDrive Policy
+1. Open dashboard: `http://localhost:3000`
+2. Navigate to **Policies** page
+3. Click **"Create Policy"**
+4. Select **"OneDrive Cloud"** policy type
+5. Click **"Connect Account"** button
+6. Complete OAuth flow:
+   - A popup window will open for Microsoft authentication
+   - Sign in with your Microsoft account
+   - Grant permissions to CyberSentinel DLP
+   - Authorize access to your OneDrive files
+   - The popup will close automatically after successful authentication
+7. Configure policy:
+   - Select protected folders using the folder browser
+   - Name, description, severity, priority
+   - Review selected protected folders
+   - Save policy
+
+### 11.3 Verify Protected Folders
+1. In policy form, verify:
+   - Connection shows "Connected" status
+   - Protected folders list shows selected folders
+   - "Monitoring since" date is displayed (should be current time)
+
+### 11.4 Test OneDrive Polling
+
+**Option A: Wait for Automatic Polling**
+- Polling runs every 5 minutes (configured in Celery Beat)
+- Wait up to 5 minutes for next scheduled run
+
+**Option B: Trigger Manual Poll**
+1. Go to **Events** page
+2. Click **"Manual Refresh"** button (triggers both Google Drive and OneDrive polls)
+3. Wait a few seconds for poll to complete
+4. Check Events page for new OneDrive events
+
+### 11.5 Test File Creation
+1. Go to your OneDrive
+2. Navigate to protected folder
+3. Create a new file: `test_onedrive_creation.txt`
+4. Add some content
+5. Save the file
+
+### 11.6 Test File Modification (Hybrid Detection)
+1. Open `test_onedrive_creation.txt` in OneDrive
+2. Add more text to the file (e.g., append "Additional content")
+3. Save the file
+4. Go to **Events** page
+5. Click **"Manual Refresh"**
+6. Look for new OneDrive event:
+   - **Source:** `onedrive_cloud`
+   - **Event Type:** `file`
+   - **Event Subtype:** `file_modified` (should NOT show as create+delete)
+   - **File Name:** `test_onedrive_creation.txt`
+   - **Agent ID:** `onedrive-{connection_id}`
+
+**Expected Result:** Should show as **"File Modified"** event, NOT as separate create+delete events.
+
+### 11.7 Test File Deletion
+1. Delete `test_onedrive_creation.txt` in OneDrive
+2. Trigger manual refresh
+3. Verify `file_deleted` event appears
+
+### 11.8 Verify Hybrid Detection Working
+1. Check Redis for file state storage:
+   ```bash
+   docker-compose exec redis redis-cli
+   KEYS onedrive:file_state:*
+   # Should show keys like: onedrive:file_state:{connection_id}:{file_id}
+   ```
+2. Verify modification events show correct subtype:
+   - Events should show `event_subtype: "file_modified"`
+   - Event details should include `etag` and `version` fields
+   - Should NOT see create+delete pairs for file edits
+
+### 11.9 Test Historical Modifications
+1. Modify an existing file in protected folder
+2. Trigger manual refresh
+3. Verify system correctly identifies it as modification (not creation)
+4. Check that historical modifications are also detected correctly
+
+### 11.10 API Verification (Optional)
+```bash
+# Get auth token
+TOKEN=$(curl -s -X POST http://localhost:55000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=admin" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+
+# List OneDrive connections
+curl -s http://localhost:55000/api/v1/onedrive/connections \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Get protected folders for a connection
+CONNECTION_ID="your-connection-id"
+curl -s "http://localhost:55000/api/v1/onedrive/connections/$CONNECTION_ID/protected-folders" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Trigger manual poll
+curl -s -X POST http://localhost:55000/api/v1/onedrive/poll \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# Get OneDrive events
+curl -s "http://localhost:55000/api/v1/events?limit=10&source=onedrive_cloud" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+```
+
+### 11.11 Check Celery Logs
+```bash
+# Check Celery Beat (scheduler)
+docker-compose logs celery-beat | grep -i "onedrive"
+
+# Check Celery Worker (polling execution)
+docker-compose logs celery-worker | grep -i "onedrive\|poll"
+
+# Check for errors
+docker-compose logs celery-worker | grep -i error
+```
+
+### Expected Results
+- ✅ OAuth flow completes successfully
+- ✅ Protected folders are stored in database
+- ✅ Polling service fetches new activities
+- ✅ File modifications show as `file_modified` (not create+delete)
+- ✅ Events appear in dashboard with correct metadata
+- ✅ Event timestamps use actual OneDrive activity time
+- ✅ Baseline prevents historical event re-ingestion
+- ✅ Manual refresh triggers immediate polling
+- ✅ No duplicate events appear
+- ✅ Policy matching works for OneDrive events
+- ✅ Hybrid detection correctly identifies modifications
+
+---
+
+## Step 12: Cleanup (After Testing)
 
 ### 11.1 Stop Agents
 ```bash
@@ -676,6 +823,16 @@ ps aux | grep agent.py | grep -v grep
 - Events display with correct metadata
 - Baseline prevents duplicates
 - Manual refresh works
+
+✅ **OneDrive Integration:**
+- OAuth flow works
+- Protected folders configured correctly
+- Polling fetches new activities
+- Hybrid modification detection works (modifications show as `file_modified`, not create+delete)
+- Events display with correct metadata
+- Baseline prevents duplicates
+- Manual refresh works
+- Redis file state tracking functional
 
 ---
 

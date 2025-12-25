@@ -538,6 +538,61 @@ If you see an error, check:
 - Check folders haven't been deleted
 - Re-select folders in policy configuration
 
+### Hybrid Detection Issues
+
+**Problem**: File modifications still showing as create+delete
+
+**Solution**:
+1. Verify Redis is running:
+   ```bash
+   docker-compose ps redis
+   docker-compose logs redis | tail -20
+   ```
+
+2. Check Redis connectivity:
+   ```bash
+   docker-compose exec redis redis-cli ping
+   # Should return: PONG
+   ```
+
+3. Check file state storage:
+   ```bash
+   docker-compose exec redis redis-cli
+   KEYS onedrive:file_state:*
+   # Should show stored file states
+   ```
+
+4. Verify Redis configuration in `.env`:
+   ```bash
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_PASSWORD=your_password
+   REDIS_DB=0
+   ```
+
+5. Check manager logs for Redis warnings:
+   ```bash
+   docker-compose logs manager | grep -i "redis\|file_state"
+   ```
+
+**Problem**: "Redis not available" warnings in logs
+
+**Solution**:
+- System will fall back to delta-only mode (still functional)
+- Fix Redis connectivity to enable hybrid detection:
+  - Check Redis container is running
+  - Verify Redis password in `.env` matches container
+  - Check network connectivity between manager and Redis
+  - Restart manager after fixing Redis: `docker-compose restart manager`
+
+**Problem**: Modifications not detected for old files
+
+**Solution**:
+- File state is only stored after first poll
+- Old files modified before first poll may not have state in Redis
+- System will still detect modifications, but may need to fetch metadata
+- Subsequent modifications will be accurately detected
+
 ---
 
 ## Quick Reference
@@ -561,6 +616,45 @@ ONEDRIVE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback
 - **Update Baseline**: `POST /api/v1/onedrive/connections/{id}/baseline`
 - **Manual Poll**: `POST /api/v1/onedrive/poll`
 
+### How Hybrid Modification Detection Works
+
+**Problem:** Microsoft Graph API delta queries sometimes report file modifications as "created" + "deleted" events instead of a single "updated" event. This causes the system to show file creation and deletion instead of file modification when a user adds text to an existing file.
+
+**Solution:** Hybrid approach combining delta API with file metadata comparison:
+
+1. **Delta API for Deletions & Creations:**
+   - Uses delta API as-is for reliable `changeType="deleted"` and `changeType="created"` events
+   - These change types are accurate and don't need verification
+
+2. **Metadata Comparison for Modifications:**
+   - When delta reports `changeType="updated"`: Fetches current file metadata (ETag, version, lastModifiedDateTime) from Graph API
+   - Compares current ETag with stored ETag in Redis
+   - If ETag changed → Real modification (logs as `file_modified`)
+   - If ETag same but timestamp changed → Metadata-only change (still logs as `file_modified`)
+
+3. **Suspected Modification Detection:**
+   - When delta reports `changeType="created"` but file_id exists in Redis → Treats as suspected modification
+   - Fetches current metadata and compares with stored state
+   - If ETag changed → Confirmed modification (logs as `file_modified`)
+   - If ETag same → Treats as creation (might be re-upload)
+
+4. **File State Storage:**
+   - Stores file state in Redis: `onedrive:file_state:{connection_id}:{file_id}`
+   - State includes: ETag, lastModifiedDateTime, version
+   - 90-day TTL for automatic cleanup
+   - State removed when file is deleted
+
+5. **Graceful Fallback:**
+   - If Redis is unavailable, falls back to delta-only mode
+   - Logs warning but continues operation
+   - No data loss, just reduced modification detection accuracy
+
+**Benefits:**
+- ✅ Accurately detects file modifications instead of showing create+delete pairs
+- ✅ Handles historical modifications correctly
+- ✅ No performance degradation in normal operation
+- ✅ Gracefully handles Redis unavailability
+
 ### Required Azure Permissions
 
 - `Files.Read` (Delegated)
@@ -570,10 +664,34 @@ ONEDRIVE_REDIRECT_URI=http://YOUR_SERVER_IP:55000/api/v1/onedrive/callback
 ### Supported Operations
 
 - ✅ File creation
-- ✅ File modification
+- ✅ File modification (with hybrid detection - uses Redis + ETag comparison)
 - ✅ File deletion
 - ✅ File movement/renaming
 - ❌ File downloads (requires M365 subscription)
+
+### Hybrid Modification Detection
+
+**Problem:** Microsoft Graph API delta queries sometimes report file modifications as "created" + "deleted" events instead of a single "updated" event. This causes the system to show file creation and deletion instead of file modification when a user adds text to an existing file.
+
+**Solution:** Hybrid approach combining delta API with file metadata comparison:
+
+1. **Delta API for Deletions & Creations:** Uses delta API as-is for reliable `changeType="deleted"` and `changeType="created"` events
+2. **Metadata Comparison for Modifications:** 
+   - When delta reports "updated" OR when a file previously seen appears as "created", verifies by comparing file state
+   - Stores file state in Redis: `onedrive:file_state:{connection_id}:{file_id}` with ETag, version, lastModifiedDateTime
+   - Compares current ETag with stored ETag to detect real modifications
+   - If ETag changed → Real modification
+   - If ETag same but timestamp changed → Metadata-only change (still logged as modification)
+
+**Benefits:**
+- Accurately detects file modifications instead of showing create+delete pairs
+- Handles historical modifications correctly
+- Gracefully falls back to delta-only mode if Redis is unavailable
+- No performance degradation in normal operation
+
+**Requirements:**
+- Redis must be running (for file state storage)
+- If Redis is unavailable, system falls back to delta-only mode (logs warning)
 
 ---
 
@@ -597,7 +715,11 @@ If you encounter issues not covered in this guide:
 
 ---
 
-**Last Updated**: December 2024  
-**Version**: 1.0.0
+**Last Updated**: December 25, 2025  
+**Version**: 1.1.0
+
+**Recent Updates:**
+- Added hybrid modification detection using Redis + ETag comparison (December 25, 2025)
+- Fixes issue where file modifications were shown as create+delete pairs
 
 

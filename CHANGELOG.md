@@ -8,6 +8,58 @@ This document details all changes, fixes, and improvements made during testing a
 
 ---
 
+## 🚀 OneDrive Hybrid Modification Detection (December 25, 2025)
+
+### Summary
+
+- **Total Files Modified:** 2
+- **New Features:** Hybrid modification detection using Redis file state tracking and ETag comparison
+- **Problem Solved:** File modifications were incorrectly shown as create+delete pairs instead of modification events
+
+### Highlights
+
+#### Hybrid Modification Detection System
+- **Problem:** Microsoft Graph API delta queries sometimes report file modifications as "created" + "deleted" events instead of a single "updated" event
+- **Solution:** Implemented hybrid approach combining delta API with file metadata comparison
+  - **Delta API for Deletions & Creations:** Uses delta API as-is for reliable `changeType="deleted"` and `changeType="created"` events
+  - **Metadata Comparison for Modifications:** When delta reports "updated" OR when a file previously seen appears as "created", verifies by comparing file state (ETag, version, lastModifiedDateTime)
+
+#### Redis File State Storage
+- Stores file state in Redis: `onedrive:file_state:{connection_id}:{file_id}`
+- State includes: ETag, lastModifiedDateTime, version
+- 90-day TTL for automatic cleanup of old file states
+- Gracefully handles Redis unavailability (falls back to delta-only mode)
+
+#### File Metadata Fetching
+- `_fetch_file_metadata()` method fetches current file ETag/version from Graph API
+- Compares current state with stored state to detect real modifications
+- Handles API errors gracefully (skips verification on errors)
+
+#### Enhanced Delta Processing
+- **Deletions:** Uses delta as-is, removes file state from Redis
+- **Creations:** Checks if file exists in Redis; if yes, treats as modification
+- **Updates:** Verifies with metadata comparison before logging as modification
+- Stores file state after processing each file
+
+#### Event Normalizer Updates
+- Includes ETag and version in event details for debugging
+- Modification events properly marked with `event_subtype="file_modified"`
+- Event details include ETag/version information
+
+#### Files Changed
+- `server/app/services/onedrive_polling.py` - Added Redis helpers, metadata fetching, modification detection logic
+- `server/app/services/onedrive_event_normalizer.py` - Added ETag/version extraction and event details
+
+#### Testing Results
+- ✅ File modifications now show as `file_modified` events (not create+delete)
+- ✅ File creations still work correctly
+- ✅ File deletions still work correctly
+- ✅ System gracefully handles Redis/API failures
+- ✅ Historical modifications correctly identified
+- ✅ No performance degradation in normal operation
+
+---
+
 ## 🚀 Google Drive Cloud Integration (November 26, 2025)
 
 ### Summary

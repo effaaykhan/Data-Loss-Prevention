@@ -56,6 +56,7 @@ CyberSentinel DLP is a comprehensive data loss prevention platform designed for 
   - Clipboard monitoring
   - USB device detection
   - Google Drive cloud monitoring (OAuth integration)
+  - OneDrive cloud monitoring (OAuth integration, hybrid modification detection)
   - Network traffic inspection
 
 - **Compliance Frameworks**
@@ -73,6 +74,7 @@ CyberSentinel DLP is a comprehensive data loss prevention platform designed for 
   - Quarantine suspicious data
   - Generate incident reports
   - Monitor Google Drive activity (file created, modified, deleted, moved)
+  - Monitor OneDrive activity (file created, modified, deleted, moved) with hybrid modification detection
 
 ### Advanced Features
 
@@ -568,6 +570,15 @@ GET    /api/v1/google-drive/connections                # List connections
 GET    /api/v1/google-drive/connections/{id}/folders   # List folders
 POST   /api/v1/google-drive/connections/{id}/baseline  # Reset baseline
 POST   /api/v1/google-drive/poll                       # Manual refresh
+```
+
+#### OneDrive Integration
+```bash
+POST   /api/v1/onedrive/connect                        # Initiate OAuth flow
+GET    /api/v1/onedrive/connections                    # List connections
+GET    /api/v1/onedrive/connections/{id}/folders       # List folders
+POST   /api/v1/onedrive/connections/{id}/baseline      # Reset baseline
+POST   /api/v1/onedrive/poll                           # Manual refresh
 ```
 
 #### Analytics & Reporting
