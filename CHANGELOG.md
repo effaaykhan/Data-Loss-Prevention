@@ -60,6 +60,44 @@ This document details all changes, fixes, and improvements made during testing a
 
 ---
 
+## 🐛 Alert Counter Bug Fix (January 5, 2026)
+
+### Summary
+- **Total Files Modified:** 2
+- **Problem Solved:** Alert counter capped at 100, blank page on alerts route
+- **Root Cause:** API returned limited list (100 items) and frontend calculated counts from array length; frontend called `.filter()` on response object instead of alerts array
+
+### Highlights
+
+#### Alert Counter Fix
+- **Problem:** Alert counters on Alerts page were capped at 100 even when more alerts existed
+- **Root Cause:** API endpoint `/api/v1/alerts` had hardcoded `.limit(100)` on MongoDB queries, and frontend calculated counts by filtering the returned array
+- **Solution:** 
+  - Modified API to return both alerts list (limited to 100 for performance) and total counts separately
+  - API now returns `{alerts: [...], counts: {new: X, acknowledged: Y, resolved: Z, total: N}}`
+  - Frontend uses API-provided counts instead of calculating from array length
+  - Counters now display accurate totals above 100
+
+#### Blank Page Fix
+- **Problem:** Alerts page (`/alerts`) showed blank white page with console error `TypeError: e.filter is not a function`
+- **Root Cause:** Frontend tried to call `.filter()` on the response object when API returned new format
+- **Solution:**
+  - Added defensive handling to ensure `alerts` is always an array
+  - Proper type checking for both old format (array) and new format (object with alerts and counts)
+  - Added null/undefined checks and type validation
+
+#### Files Changed
+- `server/app/api/v1/alerts.py` - Changed response from `List[Alert]` to `AlertsResponse` with separate counts
+- `dashboard/src/pages/Alerts.tsx` - Updated to use API counts and added defensive response handling
+
+#### Testing Results
+- ✅ Alert counters display accurate totals above 100 (verified with 201 alerts)
+- ✅ Alerts page loads correctly without blank page errors
+- ✅ Backward compatible with both old and new API response formats
+- ✅ List display still limited to 100 for performance while counts show accurate totals
+
+---
+
 ## 🚀 Google Drive Cloud Integration (November 26, 2025)
 
 ### Summary

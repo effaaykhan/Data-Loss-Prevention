@@ -3,7 +3,7 @@ Alerts API Endpoints
 Security alerts and notifications
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -29,7 +29,12 @@ class Alert(BaseModel):
     created_at: Optional[datetime] = None
 
 
-@router.get("/", response_model=List[Alert])
+class AlertsResponse(BaseModel):
+    alerts: List[Alert]
+    counts: Dict[str, int]
+
+
+@router.get("/", response_model=AlertsResponse)
 async def get_alerts(
     current_user: dict = Depends(get_current_user),
     severity: Optional[str] = Query(None, description="Filter by severity"),
@@ -38,6 +43,7 @@ async def get_alerts(
     """
     Get all active alerts
     Generates alerts from critical/high severity events if no alerts exist in database
+    Returns alerts list (limited to 100) and total counts for accurate statistics
     """
     db = get_mongodb()
     
@@ -46,6 +52,7 @@ async def get_alerts(
     alert_count = await alerts_collection.count_documents({})
     
     alerts = []
+    counts = {"new": 0, "acknowledged": 0, "resolved": 0, "total": 0}
     
     if alert_count > 0:
         # Query alerts from database
@@ -55,6 +62,13 @@ async def get_alerts(
         if status:
             query_filter["status"] = status
         
+        # Get total counts before limiting
+        counts["total"] = await alerts_collection.count_documents(query_filter)
+        counts["new"] = await alerts_collection.count_documents({**query_filter, "status": "new"})
+        counts["acknowledged"] = await alerts_collection.count_documents({**query_filter, "status": "acknowledged"})
+        counts["resolved"] = await alerts_collection.count_documents({**query_filter, "status": "resolved"})
+        
+        # Get limited list for display
         cursor = alerts_collection.find(query_filter).sort("timestamp", -1).limit(100)
         async for alert_doc in cursor:
             # Remove MongoDB _id field
@@ -69,6 +83,14 @@ async def get_alerts(
         if severity:
             query_filter["severity"] = severity
         
+        # Get total counts before limiting
+        counts["total"] = await events_collection.count_documents(query_filter)
+        # For events, we'll count all as "new" since they're being converted to alerts
+        counts["new"] = counts["total"]
+        counts["acknowledged"] = 0
+        counts["resolved"] = 0
+        
+        # Get limited list for display
         cursor = events_collection.find(query_filter).sort("timestamp", -1).limit(100)
         
         async for event_doc in cursor:
@@ -116,10 +138,11 @@ async def get_alerts(
         "Alerts retrieved",
         user=getattr(current_user, "email", "unknown"),
         count=len(alerts),
+        total_count=counts["total"],
         filters={"severity": severity, "status": status},
     )
     
-    return alerts
+    return AlertsResponse(alerts=alerts, counts=counts)
 
 
 @router.post("/{alert_id}/acknowledge")

@@ -6,7 +6,7 @@ import { getAlerts } from '@/lib/api'
 import { formatRelativeTime, getSeverityColor, cn } from '@/lib/utils'
 
 export default function Alerts() {
-  const { data: alerts, isLoading, error, refetch } = useQuery({
+  const { data: alertsData, isLoading, error, refetch } = useQuery({
     queryKey: ['alerts'],
     queryFn: getAlerts,
     refetchInterval: 10000,
@@ -20,9 +20,35 @@ export default function Alerts() {
     return <ErrorMessage message="Failed to load alerts" retry={() => refetch()} />
   }
 
-  const newAlerts = alerts?.filter((a) => a.status === 'new') || []
-  const acknowledgedAlerts = alerts?.filter((a) => a.status === 'acknowledged') || []
-  const resolvedAlerts = alerts?.filter((a) => a.status === 'resolved') || []
+  // Handle both old format (array) and new format (object with alerts and counts)
+  let alerts: any[] = []
+  let counts: Record<string, number> = {}
+  
+  if (!alertsData) {
+    // No data - use empty arrays
+    alerts = []
+  } else if (Array.isArray(alertsData)) {
+    // Old format: direct array
+    alerts = alertsData
+  } else if (typeof alertsData === 'object' && alertsData !== null) {
+    // New format: object with alerts and counts
+    if ('alerts' in alertsData && Array.isArray(alertsData.alerts)) {
+      alerts = alertsData.alerts
+    }
+    if ('counts' in alertsData && typeof alertsData.counts === 'object' && alertsData.counts !== null) {
+      counts = alertsData.counts
+    }
+  }
+  
+  // Ensure alerts is always an array
+  if (!Array.isArray(alerts)) {
+    alerts = []
+  }
+  
+  // Use API counts if available, otherwise fall back to calculating from array
+  const newAlertsCount = typeof counts.new === 'number' ? counts.new : alerts.filter((a) => a && a.status === 'new').length
+  const acknowledgedAlertsCount = typeof counts.acknowledged === 'number' ? counts.acknowledged : alerts.filter((a) => a && a.status === 'acknowledged').length
+  const resolvedAlertsCount = typeof counts.resolved === 'number' ? counts.resolved : alerts.filter((a) => a && a.status === 'resolved').length
 
   return (
     <div className="space-y-6">
@@ -43,7 +69,7 @@ export default function Alerts() {
             </div>
             <div>
               <p className="text-sm text-gray-600">New Alerts</p>
-              <p className="text-2xl font-bold text-red-600">{newAlerts.length}</p>
+              <p className="text-2xl font-bold text-red-600">{newAlertsCount}</p>
             </div>
           </div>
         </div>
@@ -56,7 +82,7 @@ export default function Alerts() {
             <div>
               <p className="text-sm text-gray-600">Acknowledged</p>
               <p className="text-2xl font-bold text-yellow-600">
-                {acknowledgedAlerts.length}
+                {acknowledgedAlertsCount}
               </p>
             </div>
           </div>
@@ -70,7 +96,7 @@ export default function Alerts() {
             <div>
               <p className="text-sm text-gray-600">Resolved</p>
               <p className="text-2xl font-bold text-green-600">
-                {resolvedAlerts.length}
+                {resolvedAlertsCount}
               </p>
             </div>
           </div>
@@ -84,7 +110,7 @@ export default function Alerts() {
         </div>
 
         <div className="divide-y divide-gray-200">
-          {alerts?.length === 0 ? (
+          {!alerts || alerts.length === 0 ? (
             <div className="p-12 text-center">
               <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">No alerts</p>
