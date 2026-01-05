@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Settings as SettingsIcon, Server, Database, Bell, Globe } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { initiateGoogleDriveConnection } from '@/lib/api'
+import { initiateGoogleDriveConnection, initiateOneDriveConnection } from '@/lib/api'
 
 const defaultApiUrl = import.meta.env.VITE_API_URL ?? ''
 const defaultOpenSearchUrl = import.meta.env.VITE_OPENSEARCH_URL ?? 'https://localhost:9200'
 
 export default function Settings() {
   const [isConnectingDrive, setIsConnectingDrive] = useState(false)
+  const [isConnectingOneDrive, setIsConnectingOneDrive] = useState(false)
 
   const handleDriveConnect = async () => {
     try {
@@ -19,6 +20,19 @@ export default function Settings() {
       toast.error(error?.response?.data?.detail || 'Failed to start Google Drive auth')
     } finally {
       setIsConnectingDrive(false)
+    }
+  }
+
+  const handleOneDriveConnect = async () => {
+    try {
+      setIsConnectingOneDrive(true)
+      const { auth_url } = await initiateOneDriveConnection()
+      window.open(auth_url, '_blank', 'noopener,noreferrer')
+      toast.success('Opened OneDrive consent screen')
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to start OneDrive auth')
+    } finally {
+      setIsConnectingOneDrive(false)
     }
   }
 
@@ -177,15 +191,24 @@ export default function Settings() {
             <h3 className="font-semibold text-gray-900">Cloud Connectors</h3>
           </div>
           <p className="text-sm text-gray-600 mb-4">
-            Use this temporary action to open the Google Drive OAuth flow for testing. We&apos;ll relocate it once the full UI ships.
+            Use these temporary actions to open OAuth flows for testing. We&apos;ll relocate them once the full UI ships.
           </p>
-          <button
-            onClick={handleDriveConnect}
-            disabled={isConnectingDrive}
-            className="px-4 py-2 rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {isConnectingDrive ? 'Opening...' : 'Connect Google Drive'}
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={handleDriveConnect}
+              disabled={isConnectingDrive}
+              className="px-4 py-2 rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {isConnectingDrive ? 'Opening...' : 'Connect Google Drive'}
+            </button>
+            <button
+              onClick={handleOneDriveConnect}
+              disabled={isConnectingOneDrive}
+              className="px-4 py-2 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {isConnectingOneDrive ? 'Opening...' : 'Connect OneDrive'}
+            </button>
+          </div>
         </div>
 
         {/* About */}

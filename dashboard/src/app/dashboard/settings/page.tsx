@@ -4,10 +4,11 @@ import { useState } from 'react'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Settings as SettingsIcon, Bell, Shield, Database, Globe } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { initiateGoogleDriveConnection } from '@/lib/api'
+import { initiateGoogleDriveConnection, initiateOneDriveConnection } from '@/lib/api'
 
 export default function SettingsPage() {
   const [isConnectingDrive, setIsConnectingDrive] = useState(false)
+  const [isConnectingOneDrive, setIsConnectingOneDrive] = useState(false)
 
   const handleDriveConnect = async () => {
     try {
@@ -19,6 +20,19 @@ export default function SettingsPage() {
       toast.error(error?.response?.data?.detail || 'Failed to start Google Drive auth')
     } finally {
       setIsConnectingDrive(false)
+    }
+  }
+
+  const handleOneDriveConnect = async () => {
+    try {
+      setIsConnectingOneDrive(true)
+      const { auth_url } = await initiateOneDriveConnection()
+      window.open(auth_url, '_blank', 'noopener,noreferrer')
+      toast.success('Opened OneDrive consent screen in a new tab')
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to start OneDrive auth')
+    } finally {
+      setIsConnectingOneDrive(false)
     }
   }
 
@@ -172,15 +186,24 @@ export default function SettingsPage() {
               <h2 className="text-xl font-semibold text-white">Cloud Connectors</h2>
             </div>
             <p className="text-gray-300 mb-4">
-              Link Google Drive to ingest cloud activity events. Use this temporary test action until the full UI ships.
+              Link cloud storage accounts to ingest activity events. Temporary actions until the full UI ships.
             </p>
-            <button
-              onClick={handleDriveConnect}
-              disabled={isConnectingDrive}
-              className="px-4 py-2 rounded-lg font-semibold transition-colors bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isConnectingDrive ? 'Opening...' : 'Connect Google Drive'}
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handleDriveConnect}
+                disabled={isConnectingDrive}
+                className="px-4 py-2 rounded-lg font-semibold transition-colors bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isConnectingDrive ? 'Opening...' : 'Connect Google Drive'}
+              </button>
+              <button
+                onClick={handleOneDriveConnect}
+                disabled={isConnectingOneDrive}
+                className="px-4 py-2 rounded-lg font-semibold transition-colors bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isConnectingOneDrive ? 'Opening...' : 'Connect OneDrive'}
+              </button>
+            </div>
           </div>
         </div>
 

@@ -55,6 +55,12 @@ const policyTypes: Array<{
     label: 'Google Drive (Cloud)',
     description: 'Monitor Google Drive via Cloud API (OAuth required)',
     icon: Cloud
+  },
+  {
+    type: 'onedrive_cloud_monitoring',
+    label: 'OneDrive (Cloud)',
+    description: 'Monitor OneDrive via Cloud API (OAuth required)',
+    icon: Cloud
   }
 ]
 

@@ -410,6 +410,13 @@ const getDefaultConfig = (type: PolicyType): any => {
         pollingInterval: 10,
         action: 'log'
       }
+    case 'onedrive_cloud_monitoring':
+      return {
+        connectionId: '',
+        protectedFolders: [],
+        pollingInterval: 10,
+        action: 'log'
+      }
     default:
       return {}
   }

@@ -168,6 +168,12 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: Optional[str] = Field(default=None)
     GOOGLE_OAUTH_CREDENTIALS_PATH: Optional[str] = Field(default="credentials.json")
 
+    # OneDrive OAuth
+    ONEDRIVE_CLIENT_ID: Optional[str] = Field(default=None)
+    ONEDRIVE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    ONEDRIVE_REDIRECT_URI: Optional[str] = Field(default=None)
+    ONEDRIVE_TENANT_ID: Optional[str] = Field(default="consumers")  # "consumers" for personal accounts, "common" for both, or tenant ID for org accounts
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):

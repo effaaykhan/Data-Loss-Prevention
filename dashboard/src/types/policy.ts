@@ -11,6 +11,7 @@ export type PolicyType =
   | 'usb_file_transfer_monitoring'
   | 'google_drive_local_monitoring'
   | 'google_drive_cloud_monitoring'
+  | 'onedrive_cloud_monitoring'
 
 export type PolicySeverity = 'low' | 'medium' | 'high' | 'critical'
 export type ClipboardAction = 'alert' | 'log'
@@ -93,6 +94,17 @@ export interface GoogleDriveCloudConfig {
   action: 'log'
 }
 
+export interface OneDriveCloudConfig {
+  connectionId: string
+  protectedFolders: Array<{
+    id: string
+    name: string
+    path?: string
+  }>
+  pollingInterval: number // minutes
+  action: 'log'
+}
+
 export type PolicyConfig = 
   | ClipboardConfig 
   | FileSystemConfig 
@@ -101,6 +113,7 @@ export type PolicyConfig =
   | USBTransferConfig 
   | GoogleDriveLocalConfig
   | GoogleDriveCloudConfig
+  | OneDriveCloudConfig
 
 export interface Policy {
   id: string

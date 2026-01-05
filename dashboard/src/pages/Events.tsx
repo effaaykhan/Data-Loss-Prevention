@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2, Clipboard, Eye, Bell, Download, RefreshCcw, Loader2 } from 'lucide-react'
+import { Search, Filter, FileText, Calendar, Shield, AlertTriangle, Ban, X, ArrowRight, File, HardDrive, Usb, ChevronDown, ChevronUp, Trash2, Clipboard, Eye, Bell, Download, RefreshCcw, Loader2, Plus, Edit, Trash, Move, Copy, FilePlus, FileEdit, FileX, FolderOpen } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ErrorMessage from '@/components/ErrorMessage'
-import { searchEvents, getAgents, clearAllEvents, triggerGoogleDrivePoll, getPolicies, type Event, type Agent } from '@/lib/api'
+import { searchEvents, getAgents, clearAllEvents, triggerGoogleDrivePoll, triggerOneDrivePoll, getPolicies, type Event, type Agent } from '@/lib/api'
 import { formatDate, getSeverityColor, cn, truncate, formatDateTimeIST } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -31,6 +31,42 @@ function EventDetailModal({
       case 'quarantined': return <Download className="w-4 h-4" />
       default: return <Eye className="w-4 h-4" />
     }
+  }
+
+  // Helper functions for OneDrive/Google Drive event subtypes
+  const getEventSubtypeIcon = (subtype: string) => {
+    const normalized = subtype?.toLowerCase() || ''
+    if (normalized.includes('created')) return <FilePlus className="w-4 h-4" />
+    if (normalized.includes('modified') || normalized.includes('updated')) return <FileEdit className="w-4 h-4" />
+    if (normalized.includes('deleted')) return <FileX className="w-4 h-4" />
+    if (normalized.includes('moved') || normalized.includes('renamed')) return <Move className="w-4 h-4" />
+    if (normalized.includes('copied')) return <Copy className="w-4 h-4" />
+    return <File className="w-4 h-4" />
+  }
+
+  const getEventSubtypeColor = (subtype: string) => {
+    const normalized = subtype?.toLowerCase() || ''
+    if (normalized.includes('created')) return 'text-green-600 bg-green-50 border-green-200'
+    if (normalized.includes('modified') || normalized.includes('updated')) return 'text-blue-600 bg-blue-50 border-blue-200'
+    if (normalized.includes('deleted')) return 'text-red-600 bg-red-50 border-red-200'
+    if (normalized.includes('moved') || normalized.includes('renamed')) return 'text-orange-600 bg-orange-50 border-orange-200'
+    if (normalized.includes('copied')) return 'text-purple-600 bg-purple-50 border-purple-200'
+    return 'text-gray-600 bg-gray-50 border-gray-200'
+  }
+
+  const getEventSubtypeLabel = (subtype: string, changeType?: string) => {
+    if (!subtype) return 'File Activity'
+    const normalized = subtype.toLowerCase()
+    if (normalized.includes('created')) return 'File Created'
+    if (normalized.includes('modified') || normalized.includes('updated')) return 'File Modified'
+    if (normalized.includes('deleted')) return 'File Deleted'
+    if (normalized.includes('moved')) return 'File Moved'
+    if (normalized.includes('renamed')) return 'File Renamed'
+    if (normalized.includes('copied')) return 'File Copied'
+    if (changeType) {
+      return changeType.charAt(0).toUpperCase() + changeType.slice(1)
+    }
+    return 'File Activity'
   }
 
   if (isBlockedTransfer) {
@@ -220,10 +256,15 @@ function EventDetailModal({
             <div>
               <h3 className="text-2xl font-bold text-gray-900">
                 {isClipboard ? 'Clipboard Violation' : isFile ? (
-                  // Show action type for file events (Google Drive or regular file events)
+                  // Show action type and file name prominently for file events
                   event.event_subtype ? (
-                    event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-                  ) : event.description || 'File Violation'
+                    <>
+                      {getEventSubtypeLabel(event.event_subtype, event.details?.change_type)}
+                      {fileName && fileName !== 'Unknown' && (
+                        <span className="text-gray-600 font-normal">: {fileName}</span>
+                      )}
+                    </>
+                  ) : event.description || (fileName ? `File Event: ${fileName}` : 'File Event')
                 ) : 'Event Details'}
               </h3>
               <p className="text-gray-500 text-sm mt-1">{formatDateTimeIST(event.timestamp)}</p>
@@ -237,6 +278,13 @@ function EventDetailModal({
         <div className="p-6 space-y-6">
           {/* Severity, Action, and Quarantine Badges */}
           <div className="flex items-center gap-3 flex-wrap">
+            {/* Prominent Action Type Badge for OneDrive/Google Drive */}
+            {event.event_subtype && (event.source === 'onedrive_cloud' || event.source === 'google_drive_cloud') && (
+              <span className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border text-base font-semibold ${getEventSubtypeColor(event.event_subtype)}`}>
+                {getEventSubtypeIcon(event.event_subtype)}
+                {getEventSubtypeLabel(event.event_subtype, event.details?.change_type)}
+              </span>
+            )}
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium uppercase ${
               event.severity === 'critical' ? 'bg-red-100 border-red-300 text-red-700' :
               event.severity === 'high' ? 'bg-orange-100 border-orange-300 text-orange-700' :
@@ -245,13 +293,6 @@ function EventDetailModal({
             }`}>
               {event.severity}
             </span>
-            {/* Show event subtype/action for Google Drive events */}
-            {event.event_subtype && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium bg-blue-100 border-blue-300 text-blue-700">
-                <File className="w-4 h-4" />
-                {event.event_subtype.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-              </span>
-            )}
             <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium ${
               event.action_taken === 'blocked' ? 'bg-red-100 border-red-300 text-red-700' :
               event.action_taken === 'alerted' ? 'bg-yellow-100 border-yellow-300 text-yellow-700' :
@@ -268,6 +309,61 @@ function EventDetailModal({
               </span>
             )}
           </div>
+
+          {/* Activity Details Section - For OneDrive/Google Drive events */}
+          {(event.source === 'onedrive_cloud' || event.source === 'google_drive_cloud') && event.event_subtype && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+              <div className="flex items-center gap-3 mb-4">
+                <div className={`p-2 rounded-lg ${getEventSubtypeColor(event.event_subtype)}`}>
+                  {getEventSubtypeIcon(event.event_subtype)}
+                </div>
+                <label className="text-sm text-gray-700 uppercase font-semibold">Activity Details</label>
+              </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-600 mb-1 block">Action Performed</label>
+                    <div className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${getEventSubtypeColor(event.event_subtype)}`}>
+                      {getEventSubtypeIcon(event.event_subtype)}
+                      {getEventSubtypeLabel(event.event_subtype, event.details?.change_type)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 mb-1 block">Timestamp</label>
+                    <p className="text-gray-900 font-medium">{formatDateTimeIST(event.timestamp)}</p>
+                  </div>
+                </div>
+                {event.user_email && event.user_email !== 'unknown@onedrive' && (
+                  <div>
+                    <label className="text-xs text-gray-600 mb-1 block">Performed By</label>
+                    <p className="text-gray-900 font-medium">{event.user_email}</p>
+                  </div>
+                )}
+                {event.details?.change_type && (
+                  <div>
+                    <label className="text-xs text-gray-600 mb-1 block">Change Type</label>
+                    <p className="text-gray-900 font-mono text-sm bg-white px-3 py-1.5 rounded border border-gray-300 inline-block">
+                      {event.details.change_type}
+                    </p>
+                  </div>
+                )}
+                {/* Show additional context for moved/renamed files */}
+                {(event.event_subtype?.includes('moved') || event.event_subtype?.includes('renamed')) && event.details?.raw_delta_item && (
+                  <div className="bg-white rounded-lg p-4 border border-gray-200">
+                    <label className="text-xs text-gray-500 mb-2 block uppercase font-medium">Additional Context</label>
+                    {event.details.raw_delta_item.parentReference && (
+                      <div className="space-y-2">
+                        <div>
+                          <span className="text-xs text-gray-600">Current Location: </span>
+                          <span className="text-gray-900 font-mono text-sm">{event.details.raw_delta_item.parentReference.path || 'Root'}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Clipboard Event - Show Clipboard Content */}
           {isClipboard && displayContent && (
@@ -543,6 +639,42 @@ export default function Events() {
     return match ? match[1] + ':' : ''
   }
 
+  // Helper functions for OneDrive/Google Drive event subtypes
+  const getEventSubtypeIcon = (subtype: string) => {
+    const normalized = subtype?.toLowerCase() || ''
+    if (normalized.includes('created')) return <FilePlus className="w-4 h-4" />
+    if (normalized.includes('modified') || normalized.includes('updated')) return <FileEdit className="w-4 h-4" />
+    if (normalized.includes('deleted')) return <FileX className="w-4 h-4" />
+    if (normalized.includes('moved') || normalized.includes('renamed')) return <Move className="w-4 h-4" />
+    if (normalized.includes('copied')) return <Copy className="w-4 h-4" />
+    return <File className="w-4 h-4" />
+  }
+
+  const getEventSubtypeColor = (subtype: string) => {
+    const normalized = subtype?.toLowerCase() || ''
+    if (normalized.includes('created')) return 'text-green-600 bg-green-50 border-green-200'
+    if (normalized.includes('modified') || normalized.includes('updated')) return 'text-blue-600 bg-blue-50 border-blue-200'
+    if (normalized.includes('deleted')) return 'text-red-600 bg-red-50 border-red-200'
+    if (normalized.includes('moved') || normalized.includes('renamed')) return 'text-orange-600 bg-orange-50 border-orange-200'
+    if (normalized.includes('copied')) return 'text-purple-600 bg-purple-50 border-purple-200'
+    return 'text-gray-600 bg-gray-50 border-gray-200'
+  }
+
+  const getEventSubtypeLabel = (subtype: string, changeType?: string) => {
+    if (!subtype) return 'File Activity'
+    const normalized = subtype.toLowerCase()
+    if (normalized.includes('created')) return 'File Created'
+    if (normalized.includes('modified') || normalized.includes('updated')) return 'File Modified'
+    if (normalized.includes('deleted')) return 'File Deleted'
+    if (normalized.includes('moved')) return 'File Moved'
+    if (normalized.includes('renamed')) return 'File Renamed'
+    if (normalized.includes('copied')) return 'File Copied'
+    if (changeType) {
+      return changeType.charAt(0).toUpperCase() + changeType.slice(1)
+    }
+    return 'File Activity'
+  }
+
   // Fetch events
   const {
     data,
@@ -591,28 +723,119 @@ export default function Events() {
       // Always refresh events from database first
       await refetch()
       
-      // Check if Google Drive policies exist
-      const policies = await getPolicies({ enabled_only: true })
+      // Check for cloud monitoring policies
+      let policies: any[] = []
+      try {
+        const policiesResponse = await getPolicies({ enabled_only: true })
+        // Ensure policies is an array - handle both direct array and wrapped responses
+        if (Array.isArray(policiesResponse)) {
+          policies = policiesResponse
+        } else if (policiesResponse && typeof policiesResponse === 'object' && 'data' in policiesResponse) {
+          policies = Array.isArray(policiesResponse.data) ? policiesResponse.data : []
+        } else {
+          policies = []
+        }
+        console.log('Policies fetched:', policies.length, policies)
+        console.log('Policies details:', policies.map(p => ({ type: p.type, enabled: p.enabled, name: p.name })))
+      } catch (error: any) {
+        console.error('Failed to fetch policies:', error)
+        console.error('Error details:', error.response?.data, error.message, error.stack)
+        toast.error(`Failed to fetch policies: ${error?.message || 'Unknown error'}`)
+        setIsRefreshing(false)
+        return
+      }
+      
+      if (policies.length === 0) {
+        console.warn('No policies returned from API')
+        toast.success('Events refreshed. No cloud monitoring policies found.')
+        setIsRefreshing(false)
+        return
+      }
+      
       const hasGoogleDrivePolicies = policies.some(
-        (p: any) => p.type === 'google_drive_cloud_monitoring' && p.enabled
+        (p: any) => p && p.type === 'google_drive_cloud_monitoring' && p.enabled === true
+      )
+      const hasOneDrivePolicies = policies.some(
+        (p: any) => p && p.type === 'onedrive_cloud_monitoring' && p.enabled === true
       )
       
+      console.log('Has Google Drive policies:', hasGoogleDrivePolicies, 'Has OneDrive policies:', hasOneDrivePolicies)
+      console.log('Policy types found:', policies.map(p => p?.type))
+      console.log('Policy enabled states:', policies.map(p => ({ type: p?.type, enabled: p?.enabled })))
+      
+      const pollingResults: string[] = []
+      
+      // Trigger Google Drive polling if policies exist
       if (hasGoogleDrivePolicies) {
-        // Trigger Google Drive polling if policies exist
-        const response = await triggerGoogleDrivePoll()
-        if (response?.status === 'queued') {
-          toast.success('Events refreshed. Google Drive polling queued.')
-        } else if (response?.status === 'skipped') {
-          toast.success('Events refreshed.')
-        } else {
-          toast.success('Events refreshed.')
+        try {
+          console.log('Triggering Google Drive poll...')
+          const response = await triggerGoogleDrivePoll()
+          console.log('Google Drive poll response:', response)
+          if (response?.status === 'queued') {
+            pollingResults.push('Google Drive polling queued')
+          } else if (response?.status === 'skipped') {
+            pollingResults.push('Google Drive: no folders configured')
+          }
+        } catch (error: any) {
+          console.error('Google Drive poll error:', error)
+          pollingResults.push(`Google Drive polling failed: ${error?.message || 'Unknown error'}`)
+        }
+      }
+      
+      // Trigger OneDrive polling if policies exist
+      console.log('DEBUG: Checking OneDrive policies...', { hasOneDrivePolicies, policiesCount: policies.length })
+      if (hasOneDrivePolicies) {
+        console.log('DEBUG: OneDrive policies detected, triggering poll...')
+        try {
+          console.log('Triggering OneDrive poll...')
+          // Use direct fetch as fallback if axios fails
+          let response
+          try {
+            response = await triggerOneDrivePoll()
+          } catch (axiosError: any) {
+            console.warn('Axios call failed, trying direct fetch:', axiosError)
+            // Fallback to direct fetch
+            const authData = localStorage.getItem('dlp-auth-v2')
+            const token = authData ? JSON.parse(authData).state?.accessToken : null
+            const fetchResponse = await fetch('http://localhost:55000/api/v1/onedrive/poll', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              }
+            })
+            response = await fetchResponse.json()
+          }
+          console.log('OneDrive poll response:', response)
+          if (response?.status === 'queued') {
+            pollingResults.push('OneDrive polling queued')
+          } else if (response?.status === 'skipped') {
+            pollingResults.push('OneDrive: no folders configured')
+          } else {
+            pollingResults.push(`OneDrive: ${response?.status || 'unknown status'}`)
+          }
+        } catch (error: any) {
+          console.error('OneDrive poll error:', error)
+          console.error('OneDrive poll error details:', {
+            message: error?.message,
+            response: error?.response?.data,
+            stack: error?.stack
+          })
+          pollingResults.push(`OneDrive polling failed: ${error?.response?.data?.detail || error?.message || 'Unknown error'}`)
         }
       } else {
-        // No Google Drive policies, just show refresh message
+        console.log('DEBUG: No OneDrive policies found. Policies:', policies.map(p => ({ type: p?.type, enabled: p?.enabled })))
+      }
+      
+      // Show appropriate success message
+      if (pollingResults.length > 0) {
+        toast.success(`Events refreshed. ${pollingResults.join('. ')}.`)
+      } else {
         toast.success('Events refreshed.')
       }
     } catch (error: any) {
-      toast.error(error?.response?.data?.detail || 'Failed to refresh events')
+      console.error('Manual refresh error:', error)
+      toast.error(error?.response?.data?.detail || error?.message || 'Failed to refresh events')
     } finally {
       setIsRefreshing(false)
     }
@@ -783,7 +1006,14 @@ export default function Events() {
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      {/* Show action type prominently for OneDrive/Google Drive events */}
+                      {event.event_subtype && (event.source === 'onedrive_cloud' || event.source === 'google_drive_cloud') && (
+                        <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-semibold ${getEventSubtypeColor(event.event_subtype)}`}>
+                          {getEventSubtypeIcon(event.event_subtype)}
+                          {getEventSubtypeLabel(event.event_subtype, event.details?.change_type)}
+                        </span>
+                      )}
                       <span
                         className={cn(
                           'badge',
@@ -823,7 +1053,15 @@ export default function Events() {
                     {/* Event Details */}
                     {event.file_path && (
                       <p className="mt-2 text-sm text-gray-700">
-                        <strong>File:</strong> {truncate(event.file_path, 80)}
+                        <strong>File:</strong>{' '}
+                        {(event.source === 'onedrive_cloud' || event.source === 'google_drive_cloud') && event.event_subtype ? (
+                          <>
+                            <span className="font-medium">{getEventSubtypeLabel(event.event_subtype, event.details?.change_type)}:</span>{' '}
+                            {event.file_name || truncate(event.file_path, 60)}
+                          </>
+                        ) : (
+                          truncate(event.file_path, 80)
+                        )}
                       </p>
                     )}
 

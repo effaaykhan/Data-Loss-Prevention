@@ -7,6 +7,7 @@ const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 30000, // 30 second timeout
+  maxRedirects: 5, // Follow redirects (default is 5, but explicit is better)
 })
 
 // Add auth token to requests
@@ -229,6 +230,60 @@ export type GoogleDrivePollResponse = {
   message?: string
 }
 
+// OneDrive API functions
+export const initiateOneDriveConnection = async () => {
+  const { data } = await apiClient.post('/onedrive/connect')
+  return data
+}
+
+export const getOneDriveConnections = async () => {
+  const { data } = await apiClient.get('/onedrive/connections')
+  return data
+}
+
+export const listOneDriveFolders = async (
+  connectionId: string,
+  parentId: string = 'root',
+  pageToken?: string
+) => {
+  const { data } = await apiClient.get(`/onedrive/connections/${connectionId}/folders`, {
+    params: { parent_id: parentId, page_token: pageToken },
+  })
+  return data
+}
+
+export const getOneDriveProtectedFolders = async (connectionId: string) => {
+  const { data } = await apiClient.get(`/onedrive/connections/${connectionId}/protected-folders`)
+  return data
+}
+
+export const updateOneDriveBaseline = async (
+  connectionId: string,
+  payload?: { folderIds?: string[]; startTime?: string }
+) => {
+  const body = payload || {}
+  const { data } = await apiClient.post(`/onedrive/connections/${connectionId}/baseline`, body)
+  return data
+}
+
+export const triggerOneDrivePoll = async () => {
+  const { data } = await apiClient.post('/onedrive/poll')
+  return data
+}
+
+export type OneDriveProtectedFolderStatus = {
+  folder_id: string
+  folder_name?: string
+  folder_path?: string
+  last_seen_timestamp?: string
+}
+
+export type OneDrivePollResponse = {
+  status: string
+  task_id?: string | null
+  message?: string
+}
+
 export const api = {
   // Dashboard
   getDashboardOverview: async () => {
@@ -294,7 +349,8 @@ export const getDetectionPatterns = async () => {
 
 // Policies functions
 export const getPolicies = async (params?: any) => {
-  const { data } = await apiClient.get('/policies', { params })
+  // Use trailing slash to avoid redirect
+  const { data } = await apiClient.get('/policies/', { params })
   return data
 }
 

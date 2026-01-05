@@ -33,6 +33,8 @@ def transform_frontend_config_to_backend(
         return _transform_google_drive_local_config(config)
     elif policy_type == "google_drive_cloud_monitoring":
         return _transform_google_drive_cloud_config(config)
+    elif policy_type == "onedrive_cloud_monitoring":
+        return _transform_onedrive_cloud_config(config)
     else:
         # Unknown type, return empty defaults
         return (
@@ -143,6 +145,82 @@ def _transform_google_drive_cloud_config(config: Dict[str, Any]) -> Tuple[Dict[s
             "field": "source",
             "operator": "equals",
             "value": "google_drive_cloud",
+        }
+    )
+
+    # 2. Match connection ID
+    if connection_id:
+        rules.append(
+            {
+                "field": "connection_id",
+                "operator": "equals",
+                "value": connection_id,
+            }
+        )
+
+    # 3. Match folder IDs (if any)
+    folder_ids = [f.get("id") for f in protected_folders if f.get("id")]
+    if folder_ids:
+        rules.append(
+            {
+                "field": "folder_id",
+                "operator": "in",
+                "value": folder_ids,
+            }
+        )
+
+    # Build conditions
+    conditions = {
+        "match": "all",
+        "rules": rules,
+    }
+
+    # Build actions (Cloud monitoring is currently log-only)
+    actions = {"log": {}}
+
+    return conditions, actions
+
+
+def _transform_onedrive_cloud_config(config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Transform OneDrive cloud monitoring config to backend format
+
+    Frontend format:
+    {
+        "connectionId": "uuid...",
+        "protectedFolders": [
+            {"id": "folder_id_1", "name": "Folder 1"},
+            {"id": "folder_id_2", "name": "Folder 2"}
+        ],
+        "pollingInterval": 10,
+        "action": "log"
+    }
+
+    Backend format:
+    conditions: {
+        "match": "all",
+        "rules": [
+            {"field": "source", "operator": "equals", "value": "onedrive_cloud"},
+            {"field": "connection_id", "operator": "equals", "value": "..."},
+            {"field": "folder_id", "operator": "in", "value": ["folder_id_1", ...]}
+        ]
+    }
+    actions: {
+        "log": {}
+    }
+    """
+    connection_id = config.get("connectionId")
+    protected_folders = config.get("protectedFolders", [])
+    # action = config.get("action", "log") # Always log for now
+
+    rules = []
+
+    # 1. Match source
+    rules.append(
+        {
+            "field": "source",
+            "operator": "equals",
+            "value": "onedrive_cloud",
         }
     )
 
