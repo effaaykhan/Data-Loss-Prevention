@@ -3,6 +3,7 @@ Configuration Management
 Centralized configuration using Pydantic Settings
 """
 
+import json
 from typing import List, Optional
 from pydantic import Field, field_validator, PostgresDsn, MongoDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,10 +35,14 @@ class Settings(BaseSettings):
     PASSWORD_MIN_LENGTH: int = 12
 
     # CORS
-    CORS_ORIGINS: List[str] = Field(
+    # NOTE: Pydantic Settings parses list fields from env as JSON only. To support both:
+    # - JSON list strings (recommended) AND
+    # - comma-separated strings
+    # we allow either str or List[str] as input and normalize via validators below.
+    CORS_ORIGINS: List[str] | str = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"]
     )
-    ALLOWED_HOSTS: List[str] = Field(default=["localhost", "127.0.0.1"])
+    ALLOWED_HOSTS: List[str] | str = Field(default=["localhost", "127.0.0.1"])
 
     # PostgreSQL Configuration
     POSTGRES_HOST: str = Field(default="localhost")
@@ -177,30 +182,73 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
-        """Parse CORS origins from comma-separated string"""
-        # Handle empty string or None - return default
-        if not v or (isinstance(v, str) and not v.strip()):
-            return None  # Will use default from Field
-        if isinstance(v, str):
-            # Handle comma-separated string
-            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
-            return origins if origins else None
-        # If already a list, return as-is
-        return v
+        """
+        Parse CORS origins from env.
+
+        Supports:
+        - JSON list string: ["http://localhost:3000","http://192.168.1.63:3000"]
+        - Comma-separated:  http://localhost:3000,http://192.168.1.63:3000
+        """
+        if v is None or (isinstance(v, str) and not v.strip()):
+            # Explicit empty env should fall back to the Field default.
+            default = cls.model_fields["CORS_ORIGINS"].default
+            return list(default) if isinstance(default, list) else default
+        return cls._parse_list_env(v, field_name="CORS_ORIGINS")
 
     @field_validator("ALLOWED_HOSTS", mode="before")
     @classmethod
     def parse_allowed_hosts(cls, v):
-        """Parse allowed hosts from comma-separated string"""
-        # Handle empty string or None - return default
-        if not v or (isinstance(v, str) and not v.strip()):
-            return None  # Will use default from Field
+        """
+        Parse allowed hosts from env.
+
+        Supports:
+        - JSON list string: ["localhost","127.0.0.1","192.168.1.63"]
+        - Comma-separated:  localhost,127.0.0.1,192.168.1.63
+        """
+        if v is None or (isinstance(v, str) and not v.strip()):
+            # Explicit empty env should fall back to the Field default.
+            default = cls.model_fields["ALLOWED_HOSTS"].default
+            return list(default) if isinstance(default, list) else default
+        return cls._parse_list_env(v, field_name="ALLOWED_HOSTS")
+
+    @classmethod
+    def _parse_list_env(cls, v, *, field_name: str) -> List[str]:
+        """
+        Parse list-like environment variable values.
+
+        Accepts:
+        - JSON list strings: ["a","b"]
+        - Comma-separated strings: a,b
+        - Python lists/tuples/sets
+        """
         if isinstance(v, str):
-            # Handle comma-separated string
-            hosts = [host.strip() for host in v.split(",") if host.strip()]
-            return hosts if hosts else None
-        # If already a list, return as-is
-        return v
+            s = v.strip()
+            if s.startswith("["):
+                try:
+                    parsed = json.loads(s)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"{field_name} must be a JSON list or comma-separated string; "
+                        f"got invalid JSON: {v!r}"
+                    ) from e
+                if not isinstance(parsed, list):
+                    raise ValueError(f"{field_name} must be a JSON list; got {type(parsed).__name__}")
+                items = parsed
+            else:
+                items = [part.strip() for part in s.split(",")]
+        elif isinstance(v, (list, tuple, set)):
+            items = list(v)
+        else:
+            raise ValueError(
+                f"{field_name} must be a JSON list string, comma-separated string, or list; "
+                f"got {type(v).__name__}"
+            )
+
+        cleaned = [str(item).strip() for item in items if str(item).strip()]
+        if not cleaned:
+            default = cls.model_fields[field_name].default
+            return list(default) if isinstance(default, list) else default
+        return cleaned
 
     model_config = SettingsConfigDict(
         env_file=".env",
