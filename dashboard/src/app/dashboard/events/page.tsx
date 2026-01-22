@@ -79,6 +79,8 @@ function EventDetailModal({
     const fileName = event.file_name || sourcePath.split(/[/\\]/).pop() || 'Unknown'
     const fileSize = event.file_size ? formatFileSize(event.file_size) : 'Unknown size'
     const driveLetter = getDriveLetter(destPath)
+    const isUsbTransfer = (event.transfer_type || '').toLowerCase() === 'usb_copy'
+    const destinationLabel = driveLetter || (isUsbTransfer ? 'USB Drive' : 'Destination')
 
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -146,7 +148,7 @@ function EventDetailModal({
                 </div>
 
                 {/* Destination */}
-                <div className="flex-1">
+                  <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <HardDrive className="w-5 h-5 text-red-400" />
                     <label className="text-sm text-gray-400 uppercase font-medium">Destination</label>
@@ -154,7 +156,7 @@ function EventDetailModal({
                   <div className="bg-gray-800/50 rounded-lg p-4 border border-red-500/30">
                     <div className="flex items-center gap-2 mb-1">
                       <Usb className="w-4 h-4 text-red-400" />
-                      <p className="text-red-400 font-semibold">{driveLetter || 'USB Drive'}</p>
+                        <p className="text-red-400 font-semibold">{destinationLabel}</p>
                     </div>
                     <p className="text-gray-400 text-sm font-mono truncate" title={destPath}>
                       {destPath}
@@ -177,7 +179,7 @@ function EventDetailModal({
               </div>
               <div className="bg-gray-900/30 rounded-lg p-4 border border-gray-700">
                 <label className="text-xs text-gray-400 uppercase font-medium mb-1 block">Transfer Type</label>
-                <p className="text-white font-medium capitalize">{event.transfer_type || 'USB Copy'}</p>
+                <p className="text-white font-medium capitalize">{event.transfer_type || 'File Transfer'}</p>
               </div>
               <div className="bg-gray-900/30 rounded-lg p-4 border border-gray-700">
                 <label className="text-xs text-gray-400 uppercase font-medium mb-1 block">Action Taken</label>

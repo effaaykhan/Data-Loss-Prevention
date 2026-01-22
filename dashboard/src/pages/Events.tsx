@@ -152,7 +152,7 @@ function EventDetailModal({
                   <div className="bg-white rounded-lg p-4 border border-red-300">
                     <div className="flex items-center gap-2 mb-1">
                       <Usb className="w-4 h-4 text-red-600" />
-                      <p className="text-red-600 font-semibold">{driveLetter || 'USB Drive'}</p>
+                      <p className="text-red-600 font-semibold">{driveLetter || 'Destination'}</p>
                     </div>
                     <p className="text-gray-600 text-sm font-mono truncate" title={destPath}>
                       {destPath}
@@ -175,7 +175,7 @@ function EventDetailModal({
               </div>
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Transfer Type</label>
-                <p className="text-gray-900 font-medium capitalize">{event.transfer_type || 'USB Copy'}</p>
+                <p className="text-gray-900 font-medium capitalize">{event.transfer_type || 'File Transfer'}</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <label className="text-xs text-gray-600 uppercase font-medium mb-1 block">Action Taken</label>
